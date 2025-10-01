@@ -1,0 +1,76 @@
+name: cloudify
+
+services:
+  db:
+    image: postgres:16
+    container_name: cloudify-db
+    environment:
+      POSTGRES_DB: ${DB_NAME}
+      POSTGRES_USER: ${DB_USER}
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+      TZ: Asia/Seoul
+    ports:
+      - "5432:5432"
+    volumes:
+      - db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    networks: [app]
+
+  redis:
+    image: redis:7-alpine
+    container_name: cloudify-redis
+    command: ["redis-server", "--save", "", "--appendonly", "no"]
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    networks: [app]
+
+  api-spring:
+    build:
+      context: ../api-spring
+      dockerfile: Dockerfile
+    container_name: cloudify-api
+    env_file:
+      - ./.env
+    environment:
+      TZ: Asia/Seoul
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    ports:
+      - "8080:8080"
+    networks: [app]
+
+volumes:
+  db-data:
+
+networks:
+  app:
+
+
+# -----------------------------------------------------------------------------
+# Local run cheatsheet (run these from this folder: deploy/)
+#
+# 1) 컨테이너 올리기(필요 시 빌드 포함)
+#    docker compose up -d --build
+#
+# 2) 업데이트(코드 변경 후 Spring만 재빌드/재기동)
+#    docker compose up -d --build api-spring
+#    # 모든 서비스 갱신하려면:
+#    # docker compose up -d --build
+#
+# 3) 컨테이너 내리기(중지+삭제, 볼륨 유지)
+#    docker compose down
+#    # DB 초기화까지 원하면(데이터 삭제):
+#    # docker compose down -v
+# -----------------------------------------------------------------------------
