@@ -1,3 +1,5 @@
+### spotify 사용자를 위한 id、secret 등록
+
 # Spotify API 설정
 spotify.client-id=YOUR_SPOTIFY_CLIENT_ID
 spotify.client-secret=YOUR_SPOTIFY_CLIENT_SECRET
@@ -9,6 +11,8 @@ server.port=8080
 logging.level.org.example=DEBUG
 
 
+
+＃＃＃spotify 서버와 통신시 사용###
 package org.example.apispring.config;
 
 import org.springframework.context.annotation.Bean;
@@ -24,6 +28,9 @@ public class WebClientConfig {
     }
 }
 
+
+
+###인증###
 
 package org.example.apispring.service;
 
@@ -115,6 +122,8 @@ public class SpotifyAuthService {
 }
 
 
+
+＃＃＃트랙검색＃＃＃
 package org.example.apispring.service;
 
 import lombok.RequiredArgsConstructor;
@@ -235,5 +244,264 @@ public class SpotifySearchService {
         track.setAlbumName((String) album.get("name"));
         
         return track;
+    }
+}
+
+
+
+＃＃＃오디어 피처＃＃＃
+
+package org.example.apispring.service;
+
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+import org.example.apispring.dto.AudioFeatures;
+import org.springframework.stereotype.Service;
+import org.springframework.web.reactive.function.client.WebClient;
+
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Map;
+
+@Service
+@RequiredArgsConstructor
+@Slf4j
+public class SpotifyAudioFeaturesService {
+    
+    private final SpotifyAuthService authService;
+    private final WebClient.Builder webClientBuilder;
+    
+    private WebClient getSpotifyClient() {
+        return webClientBuilder
+                .baseUrl("https://api.spotify.com/v1")
+                .build();
+    }
+    
+    /**
+     * 오디오 피처 가져오기 (배치)
+     */
+    public List<AudioFeatures> getAudioFeatures(List<String> trackIds) {
+        log.info("🎼 오디오 피처 조회: {}개", trackIds.size());
+        
+        String token = authService.getAccessToken();
+        String ids = String.join(",", trackIds);
+        
+        try {
+            Map<String, Object> response = getSpotifyClient()
+                    .get()
+                    .uri("/audio-features?ids=" + ids)
+                    .header("Authorization", "Bearer " + token)
+                    .retrieve()
+                    .bodyToMono(Map.class)
+                    .block();
+            
+            List<Map<String, Object>> features = 
+                    (List<Map<String, Object>>) response.get("audio_features");
+            
+            List<AudioFeatures> result = new ArrayList<>();
+            for (Map<String, Object> feature : features) {
+                if (feature != null) {
+                    AudioFeatures af = parseAudioFeatures(feature);
+                    result.add(af);
+                }
+            }
+            
+            log.info("✅ 오디오 피처 조회 완료: {}개", result.size());
+            return result;
+            
+        } catch (Exception e) {
+            log.error("❌ 오디오 피처 조회 실패", e);
+            throw new RuntimeException("오디오 피처 조회 실패", e);
+        }
+    }
+    
+    /**
+     * JSON → AudioFeatures 변환
+     */
+    private AudioFeatures parseAudioFeatures(Map<String, Object> data) {
+        AudioFeatures af = new AudioFeatures();
+        
+        af.setId((String) data.get("id"));
+        af.setTempo(getDouble(data.get("tempo")));
+        af.setEnergy(getDouble(data.get("energy")));
+        af.setValence(getDouble(data.get("valence")));
+        af.setDanceability(getDouble(data.get("danceability")));
+        af.setAcousticness(getDouble(data.get("acousticness")));
+        af.setInstrumentalness(getDouble(data.get("instrumentalness")));
+        
+        return af;
+    }
+    
+    private Double getDouble(Object value) {
+        if (value == null) return null;
+        if (value instanceof Double) return (Double) value;
+        if (value instanceof Integer) return ((Integer) value).doubleValue();
+        return Double.parseDouble(value.toString());
+    }
+}
+
+
+
+
+＃＃＃태그생성＃＃＃
+
+package org.example.apispring.service;
+
+import lombok.extern.slf4j.Slf4j;
+import org.example.apispring.dto.AudioFeatures;
+import org.example.apispring.dto.GeneratedTags;
+import org.springframework.stereotype.Service;
+
+import java.util.ArrayList;
+import java.util.List;
+
+@Service
+@Slf4j
+public class TagGenerationService {
+    
+    /**
+     * 오디오 피처로 태그 생성
+     */
+    public GeneratedTags generateTags(AudioFeatures features) {
+        log.info("🏷️  태그 생성 중: {}", features.getId());
+        
+        GeneratedTags tags = new GeneratedTags();
+        tags.setTrackId(features.getId());
+        
+        // TEMPO 태그
+        String tempoTag = generateTempoTag(features.getTempo());
+        if (tempoTag != null) {
+            tags.addTag("TEMPO", tempoTag);
+        }
+        
+        // MOOD 태그
+        List<String> moodTags = generateMoodTags(features);
+        for (String mood : moodTags) {
+            tags.addTag("MOOD", mood);
+        }
+        
+        // BRANCH 태그
+        String branchTag = generateBranchTag(features);
+        if (branchTag != null) {
+            tags.addTag("BRANCH", branchTag);
+        }
+        
+        // ACTIVITY 태그
+        List<String> activityTags = generateActivityTags(features);
+        for (String activity : activityTags) {
+            tags.addTag("ACTIVITY", activity);
+        }
+        
+        log.info("✅ 태그 생성 완료: {}", tags.getAllTags());
+        return tags;
+    }
+    
+    /**
+     * TEMPO 태그 생성
+     */
+    private String generateTempoTag(Double bpm) {
+        if (bpm == null) return null;
+        
+        if (bpm < 90) return "tempo.slow";
+        if (bpm <= 120) return "tempo.mid";
+        return "tempo.fast";
+    }
+    
+    /**
+     * MOOD 태그 생성
+     */
+    private List<String> generateMoodTags(AudioFeatures features) {
+        List<String> moods = new ArrayList<>();
+        
+        Double energy = features.getEnergy();
+        Double valence = features.getValence();
+        
+        if (energy == null || valence == null) {
+            return moods;
+        }
+        
+        // energy < 0.40 & valence ≥ 0.50 → comfort/tender
+        if (energy < 0.40 && valence >= 0.50) {
+            moods.add("mood.comfort");
+        }
+        
+        // energy < 0.40 & valence < 0.50 → calm/wistful
+        if (energy < 0.40 && valence < 0.50) {
+            moods.add("mood.calm");
+        }
+        
+        // energy ≥ 0.60 & valence ≥ 0.60 → uplift
+        if (energy >= 0.60 && valence >= 0.60) {
+            moods.add("mood.uplift");
+        }
+        
+        // instrumentalness ≥ 0.60 → focus
+        if (features.getInstrumentalness() != null && 
+            features.getInstrumentalness() >= 0.60) {
+            moods.add("mood.focus");
+        }
+        
+        return moods;
+    }
+    
+    /**
+     * BRANCH 태그 생성
+     */
+    private String generateBranchTag(AudioFeatures features) {
+        Double energy = features.getEnergy();
+        Double tempo = features.getTempo();
+        
+        if (energy == null || tempo == null) {
+            return null;
+        }
+        
+        // energy < 0.55 & bpm < 115 → calm
+        if (energy < 0.55 && tempo < 115) {
+            return "branch.calm";
+        }
+        
+        // energy ≥ 0.55 or bpm ≥ 115 → uplift
+        if (energy >= 0.55 || tempo >= 115) {
+            return "branch.uplift";
+        }
+        
+        return null;
+    }
+    
+    /**
+     * ACTIVITY 태그 생성
+     */
+    private List<String> generateActivityTags(AudioFeatures features) {
+        List<String> activities = new ArrayList<>();
+        
+        Double bpm = features.getTempo();
+        Double energy = features.getEnergy();
+        Double instrumentalness = features.getInstrumentalness();
+        Double danceability = features.getDanceability();
+        
+        if (bpm == null || energy == null) {
+            return activities;
+        }
+        
+        // study/focus: 60≤bpm≤100 & energy<0.5 & instrumentalness≥0.5
+        if (bpm >= 60 && bpm <= 100 && 
+            energy < 0.5 && 
+            instrumentalness != null && instrumentalness >= 0.5) {
+            activities.add("activity.study");
+        }
+        
+        // workout: bpm>120 & energy≥0.7 & danceability≥0.6
+        if (bpm > 120 && 
+            energy >= 0.7 && 
+            danceability != null && danceability >= 0.6) {
+            activities.add("activity.workout");
+        }
+        
+        // unwind: 70≤bpm≤110 & energy<0.5
+        if (bpm >= 70 && bpm <= 110 && energy < 0.5) {
+            activities.add("activity.unwind");
+        }
+        
+        return activities;
     }
 }
