@@ -1,1 +1,239 @@
+# Spotify API 설정
+spotify.client-id=YOUR_SPOTIFY_CLIENT_ID
+spotify.client-secret=YOUR_SPOTIFY_CLIENT_SECRET
 
+# 서버 설정
+server.port=8080
+
+# 로깅
+logging.level.org.example=DEBUG
+
+
+package org.example.apispring.config;
+
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
+import org.springframework.web.reactive.function.client.WebClient;
+
+@Configuration
+public class WebClientConfig {
+    
+    @Bean
+    public WebClient.Builder webClientBuilder() {
+        return WebClient.builder();
+    }
+}
+
+
+package org.example.apispring.service;
+
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.stereotype.Service;
+import org.springframework.util.LinkedMultiValueMap;
+import org.springframework.util.MultiValueMap;
+import org.springframework.web.reactive.function.client.WebClient;
+
+import java.time.Instant;
+import java.util.Base64;
+import java.util.Map;
+
+@Service
+@Slf4j
+public class SpotifyAuthService {
+    
+    @Value("${spotify.client-id}")
+    private String clientId;
+    
+    @Value("${spotify.client-secret}")
+    private String clientSecret;
+    
+    private final WebClient webClient;
+    
+    private String accessToken;
+    private Instant tokenExpiry;
+    
+    public SpotifyAuthService(WebClient.Builder webClientBuilder) {
+        this.webClient = webClientBuilder
+                .baseUrl("https://accounts.spotify.com")
+                .build();
+    }
+    
+    /**
+     * Access Token 발급 (자동 갱신 포함)
+     */
+    public String getAccessToken() {
+        // 토큰이 없거나 만료 5분 전이면 갱신
+        if (accessToken == null || 
+            tokenExpiry == null || 
+            Instant.now().isAfter(tokenExpiry.minusSeconds(300))) {
+            
+            refreshAccessToken();
+        }
+        
+        return accessToken;
+    }
+    
+    /**
+     * Access Token 갱신
+     */
+    private void refreshAccessToken() {
+        log.info("🔄 Spotify Access Token 갱신 중...");
+        
+        try {
+            // Basic Auth 인코딩
+            String auth = clientId + ":" + clientSecret;
+            String encodedAuth = Base64.getEncoder()
+                    .encodeToString(auth.getBytes());
+            
+            // Request Body
+            MultiValueMap<String, String> formData = new LinkedMultiValueMap<>();
+            formData.add("grant_type", "client_credentials");
+            
+            // API 호출
+            Map<String, Object> response = webClient.post()
+                    .uri("/api/token")
+                    .header("Authorization", "Basic " + encodedAuth)
+                    .header("Content-Type", "application/x-www-form-urlencoded")
+                    .bodyValue(formData)
+                    .retrieve()
+                    .bodyToMono(Map.class)
+                    .block();
+            
+            // 토큰 저장
+            this.accessToken = (String) response.get("access_token");
+            Integer expiresIn = (Integer) response.get("expires_in");
+            this.tokenExpiry = Instant.now().plusSeconds(expiresIn);
+            
+            log.info("✅ Access Token 발급 완료 (만료: {})", tokenExpiry);
+            
+        } catch (Exception e) {
+            log.error("❌ Access Token 발급 실패", e);
+            throw new RuntimeException("Spotify 인증 실패", e);
+        }
+    }
+}
+
+
+package org.example.apispring.service;
+
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+import org.example.apispring.dto.SpotifyTrack;
+import org.springframework.stereotype.Service;
+import org.springframework.web.reactive.function.client.WebClient;
+import org.springframework.web.util.UriComponentsBuilder;
+
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Map;
+
+@Service
+@RequiredArgsConstructor
+@Slf4j
+public class SpotifySearchService {
+    
+    private final SpotifyAuthService authService;
+    private final WebClient.Builder webClientBuilder;
+    
+    private WebClient getSpotifyClient() {
+        return webClientBuilder
+                .baseUrl("https://api.spotify.com/v1")
+                .build();
+    }
+    
+    /**
+     * 트랙 검색
+     */
+    public List<SpotifyTrack> searchTracks(String query, int limit) {
+        log.info("🔍 Spotify 검색: {}", query);
+        
+        String token = authService.getAccessToken();
+        
+        String uri = UriComponentsBuilder.fromPath("/search")
+                .queryParam("q", query)
+                .queryParam("type", "track")
+                .queryParam("market", "KR")
+                .queryParam("limit", limit)
+                .build()
+                .toUriString();
+        
+        try {
+            Map<String, Object> response = getSpotifyClient()
+                    .get()
+                    .uri(uri)
+                    .header("Authorization", "Bearer " + token)
+                    .retrieve()
+                    .bodyToMono(Map.class)
+                    .block();
+            
+            // 파싱
+            Map<String, Object> tracks = (Map<String, Object>) response.get("tracks");
+            List<Map<String, Object>> items = (List<Map<String, Object>>) tracks.get("items");
+            
+            List<SpotifyTrack> result = new ArrayList<>();
+            for (Map<String, Object> item : items) {
+                SpotifyTrack track = parseTrack(item);
+                result.add(track);
+            }
+            
+            log.info("✅ 검색 완료: {}개", result.size());
+            return result;
+            
+        } catch (Exception e) {
+            log.error("❌ 검색 실패", e);
+            throw new RuntimeException("Spotify 검색 실패", e);
+        }
+    }
+    
+    /**
+     * 단일 트랙 조회
+     */
+    public SpotifyTrack getTrack(String trackId) {
+        log.info("🎵 트랙 조회: {}", trackId);
+        
+        String token = authService.getAccessToken();
+        
+        try {
+            Map<String, Object> response = getSpotifyClient()
+                    .get()
+                    .uri("/tracks/" + trackId)
+                    .header("Authorization", "Bearer " + token)
+                    .retrieve()
+                    .bodyToMono(Map.class)
+                    .block();
+            
+            return parseTrack(response);
+            
+        } catch (Exception e) {
+            log.error("❌ 트랙 조회 실패", e);
+            throw new RuntimeException("트랙 조회 실패", e);
+        }
+    }
+    
+    /**
+     * JSON → SpotifyTrack 변환
+     */
+    private SpotifyTrack parseTrack(Map<String, Object> item) {
+        SpotifyTrack track = new SpotifyTrack();
+        
+        track.setId((String) item.get("id"));
+        track.setName((String) item.get("name"));
+        track.setDurationMs((Integer) item.get("duration_ms"));
+        track.setPopularity((Integer) item.get("popularity"));
+        
+        // 아티스트
+        List<Map<String, Object>> artists = (List<Map<String, Object>>) item.get("artists");
+        if (!artists.isEmpty()) {
+            Map<String, Object> artist = artists.get(0);
+            track.setArtistId((String) artist.get("id"));
+            track.setArtistName((String) artist.get("name"));
+        }
+        
+        // 앨범
+        Map<String, Object> album = (Map<String, Object>) item.get("album");
+        track.setAlbumName((String) album.get("name"));
+        
+        return track;
+    }
+}
