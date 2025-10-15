@@ -19,48 +19,84 @@ repositories {
 }
 
 dependencies {
-    // --- Web API (REST Controller, JSON 직렬화 등) ---
+    // ─────────────────────────────────────────────────────────────────────────
+    // Core Web & Security
+    // - 기본 REST API, 시큐리티 필터 체인, 인증/인가
+    // ─────────────────────────────────────────────────────────────────────────
     implementation 'org.springframework.boot:spring-boot-starter-web'
+    implementation 'org.springframework.boot:spring-boot-starter-security'
 
-    // --- Bean Validation(JSR-380): @Valid, @NotNull 등 ---
+    // ─────────────────────────────────────────────────────────────────────────
+    // OAuth2 / OpenID Connect (Google 로그인 & 토큰)
+    // - oauth2-client: 인증 플로우(Authorization Code + PKCE)
+    // - (권장) oauth2-jose: JWT(ID 토큰) 파싱/검증에 필요한 JOSE/JWT 지원
+    // ─────────────────────────────────────────────────────────────────────────
+    implementation 'org.springframework.boot:spring-boot-starter-oauth2-client'
+    implementation 'org.springframework.security:spring-security-oauth2-jose'
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // Validation
+    // - @Valid, @NotNull 등 Bean Validation(JSR 380)
+    // ─────────────────────────────────────────────────────────────────────────
     implementation 'org.springframework.boot:spring-boot-starter-validation'
 
-    // --- JPA/Hibernate: 엔티티 매핑 + 트랜잭션 ---
+    // ─────────────────────────────────────────────────────────────────────────
+    // Persistence / Database
+    // - Spring Data JPA + Hibernate, PostgreSQL 드라이버
+    // ─────────────────────────────────────────────────────────────────────────
     implementation 'org.springframework.boot:spring-boot-starter-data-jpa'
-
-    // --- PostgreSQL JDBC 드라이버 (런타임에만 필요) ---
     runtimeOnly 'org.postgresql:postgresql'
 
-    // --- OAuth2 클라이언트: Google 로그인(Code+PKCE) ---
-    implementation 'org.springframework.boot:spring-boot-starter-oauth2-client'
-
-    // --- Actuator: /actuator/health 등 헬스/메트릭 ---
+    // ─────────────────────────────────────────────────────────────────────────
+    // Observability
+    // - 헬스체크(/actuator/health), 메트릭 등
+    // ─────────────────────────────────────────────────────────────────────────
     implementation 'org.springframework.boot:spring-boot-starter-actuator'
 
-    // --- (선택) Redis: 세션/캐시 사용 시 활성화 ---
+    // ─────────────────────────────────────────────────────────────────────────
+    // (선택) Redis
+    // - refresh 토큰/세션/캐시를 Redis에 저장할 계획이면 사용
+    // ─────────────────────────────────────────────────────────────────────────
     // implementation 'org.springframework.boot:spring-boot-starter-data-redis'
 
-    // --- (선택) DB 마이그레이션: Flyway 사용 시 ---
-    // implementation 'org.flywaydb:flyway-core'
-    // (Postgres 확장 기능이 필요하면)
-    // implementation 'org.flywaydb:flyway-database-postgresql'
+    // ─────────────────────────────────────────────────────────────────────────
+    // (선택) API 문서 (Springdoc OpenAPI + Swagger UI)
+    // - 버전은 사용 중인 Spring Boot 3.x에 맞는 2.x를 권장
+    // ─────────────────────────────────────────────────────────────────────────
+    // implementation 'org.springdoc:springdoc-openapi-starter-webmvc-ui:2.5.0'
 
-    // --- (선택) Lombok: 보일러플레이트 제거 ---
+    // ─────────────────────────────────────────────────────────────────────────
+    // (선택) DevTools (개발 편의)
+    // - 자동 리스타트/라이브 리로드 (운영 배포에는 포함되지 않음)
+    // ─────────────────────────────────────────────────────────────────────────
+    // developmentOnly 'org.springframework.boot:spring-boot-devtools'
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // Lombok (선택)
+    // - 보일러플레이트 제거 (컴파일 시에만 필요)
+    // ─────────────────────────────────────────────────────────────────────────
     compileOnly 'org.projectlombok:lombok'
     annotationProcessor 'org.projectlombok:lombok'
     testCompileOnly 'org.projectlombok:lombok'
     testAnnotationProcessor 'org.projectlombok:lombok'
 
-    // --- (선택) 설정 바인딩 @ConfigurationProperties 힌트 생성 ---
+    // ─────────────────────────────────────────────────────────────────────────
+    // @ConfigurationProperties 바인딩 메타 생성(선택)
+    // ─────────────────────────────────────────────────────────────────────────
     annotationProcessor 'org.springframework.boot:spring-boot-configuration-processor'
 
-    // --- 테스트 ---
+    // ─────────────────────────────────────────────────────────────────────────
+    // Test
+    // - 기본 테스트 스타터 + 시큐리티 테스트 유틸
+    // - (선택) Testcontainers로 Postgres 통합 테스트
+    // ─────────────────────────────────────────────────────────────────────────
     testImplementation 'org.springframework.boot:spring-boot-starter-test'
+    testImplementation 'org.springframework.security:spring-security-test'
     testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
-    // (선택) Testcontainers로 Postgres 통합테스트
     // testImplementation 'org.testcontainers:junit-jupiter'
     // testImplementation 'org.testcontainers:postgresql'
 }
+
 
 
 tasks.named('test') {
