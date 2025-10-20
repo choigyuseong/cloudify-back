@@ -37,6 +37,15 @@ spring:
         provider:
           google:
             issuer-uri: https://accounts.google.com
+jwt:
+  secret: ${JWT_SECRET}
+  issuer: ${JWT_ISSUER}
+  access-token-expiration: ${JWT_ACCESS_TOKEN_EXPIRATION}
+  refresh-token-expiration: ${JWT_REFRESH_TOKEN_EXPIRATION}
+  allowed-clock-skew-seconds: ${JWT_ALLOWED_CLOCK_SKEW_SECONDS}
+
+crypto:
+  master-key-base64: ${CRYPTO_MASTER_KEY:}
 
 management:
   endpoints:

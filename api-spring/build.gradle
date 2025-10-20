@@ -55,16 +55,14 @@ dependencies {
     implementation 'org.springframework.boot:spring-boot-starter-actuator'
 
     // ─────────────────────────────────────────────────────────────────────────
-    // (선택) Redis
-    // - refresh 토큰/세션/캐시를 Redis에 저장할 계획이면 사용
+    // Redis
     // ─────────────────────────────────────────────────────────────────────────
-    // implementation 'org.springframework.boot:spring-boot-starter-data-redis'
+    implementation 'org.springframework.boot:spring-boot-starter-data-redis'
 
     // ─────────────────────────────────────────────────────────────────────────
-    // (선택) API 문서 (Springdoc OpenAPI + Swagger UI)
-    // - 버전은 사용 중인 Spring Boot 3.x에 맞는 2.x를 권장
+    // API 문서 (Springdoc OpenAPI + Swagger UI)
     // ─────────────────────────────────────────────────────────────────────────
-    // implementation 'org.springdoc:springdoc-openapi-starter-webmvc-ui:2.5.0'
+    implementation 'org.springdoc:springdoc-openapi-starter-webmvc-ui:2.8.13'
 
     // ─────────────────────────────────────────────────────────────────────────
     // (선택) DevTools (개발 편의)
@@ -87,6 +85,13 @@ dependencies {
     annotationProcessor 'org.springframework.boot:spring-boot-configuration-processor'
 
     implementation 'com.google.code.gson:gson:2.10.1'
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // JWT
+    // ─────────────────────────────────────────────────────────────────────────
+    implementation 'io.jsonwebtoken:jjwt-api:0.13.0'
+    runtimeOnly   'io.jsonwebtoken:jjwt-impl:0.13.0'
+    runtimeOnly   'io.jsonwebtoken:jjwt-jackson:0.13.0'
 
     // ─────────────────────────────────────────────────────────────────────────
     // Test
