@@ -1,0 +1,595 @@
+// 필요한 패키지: npm install express axios sqlite3
+
+const express = require('express');
+const axios = require('axios');
+const querystring = require('querystring');
+const sqlite3 = require('sqlite3').verbose();
+
+const app = express();
+const PORT = 8888;
+
+// Spotify 앱 정보
+const CLIENT_ID = '7a22c29754bd49509e0476f93febd709';
+const CLIENT_SECRET = '667186f0278b465c97e8a524d508a79f';
+const REDIRECT_URI = 'http://127.0.0.1:8888/callback';
+const SCOPE = 'user-read-private user-read-email user-top-read playlist-read-private user-read-recently-played';
+
+// ==================== 데이터베이스 설정 ====================
+
+// 데이터베이스 생성/연결
+const db = new sqlite3.Database('./spotify_data.db', (err) => {
+  if (err) {
+    console.error('❌ DB 연결 실패:', err);
+  } else {
+    console.log('✅ DB 연결 성공: spotify_data.db');
+  }
+});
+
+// 테이블 생성
+db.serialize(() => {
+  // 사용자 테이블
+  db.run(`
+    CREATE TABLE IF NOT EXISTS users (
+      id TEXT PRIMARY KEY,
+      display_name TEXT,
+      email TEXT,
+      country TEXT,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    )
+  `);
+
+  // 트랙 테이블
+  db.run(`
+    CREATE TABLE IF NOT EXISTS tracks (
+      id TEXT PRIMARY KEY,
+      name TEXT,
+      artist_name TEXT,
+      artist_id TEXT,
+      album_name TEXT,
+      album_id TEXT,
+      duration_ms INTEGER,
+      popularity INTEGER,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    )
+  `);
+
+  // 오디오 특성 테이블
+  db.run(`
+    CREATE TABLE IF NOT EXISTS audio_features (
+      track_id TEXT PRIMARY KEY,
+      tempo REAL,
+      energy REAL,
+      valence REAL,
+      danceability REAL,
+      acousticness REAL,
+      instrumentalness REAL,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (track_id) REFERENCES tracks(id)
+    )
+  `);
+
+  // 태그 테이블
+  db.run(`
+    CREATE TABLE IF NOT EXISTS tags (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      track_id TEXT,
+      tag_type TEXT,
+      tag_value TEXT,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (track_id) REFERENCES tracks(id)
+    )
+  `);
+
+  // 사용자 상위 트랙 테이블
+  db.run(`
+    CREATE TABLE IF NOT EXISTS user_top_tracks (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id TEXT,
+      track_id TEXT,
+      rank INTEGER,
+      saved_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (user_id) REFERENCES users(id),
+      FOREIGN KEY (track_id) REFERENCES tracks(id)
+    )
+  `);
+
+  console.log('✅ 테이블 생성 완료');
+});
+
+// ==================== 인증 관련 ====================
+
+app.get('/', (req, res) => {
+  res.redirect('/login');
+});
+
+app.get('/login', (req, res) => {
+  const authUrl = 'https://accounts.spotify.com/authorize?' + 
+    querystring.stringify({
+      response_type: 'code',
+      client_id: CLIENT_ID,
+      scope: SCOPE,
+      redirect_uri: REDIRECT_URI,
+    });
+  res.redirect(authUrl);
+});
+
+app.get('/callback', async (req, res) => {
+  const code = req.query.code || null;
+
+  try {
+    const response = await axios.post(
+      'https://accounts.spotify.com/api/token',
+      querystring.stringify({
+        code: code,
+        redirect_uri: REDIRECT_URI,
+        grant_type: 'authorization_code',
+      }),
+      {
+        headers: {
+          'Authorization': 'Basic ' + Buffer.from(CLIENT_ID + ':' + CLIENT_SECRET).toString('base64'),
+          'Content-Type': 'application/x-www-form-urlencoded',
+        },
+      }
+    );
+
+    const { access_token } = response.data;
+    res.redirect('/dashboard?access_token=' + access_token);
+    
+  } catch (error) {
+    console.error('Error:', error.response?.data || error.message);
+    res.send('Error during authentication');
+  }
+});
+
+// ==================== 대시보드 ====================
+
+app.get('/dashboard', async (req, res) => {
+  const access_token = req.query.access_token;
+
+  try {
+    const userResponse = await axios.get('https://api.spotify.com/v1/me', {
+      headers: { 'Authorization': 'Bearer ' + access_token }
+    });
+
+    // 사용자 정보 DB에 저장
+    const user = userResponse.data;
+    db.run(`
+      INSERT OR REPLACE INTO users (id, display_name, email, country)
+      VALUES (?, ?, ?, ?)
+    `, [user.id, user.display_name, user.email, user.country], (err) => {
+      if (err) console.error('❌ 사용자 저장 실패:', err);
+      else console.log('✅ 사용자 저장 완료:', user.display_name);
+    });
+
+    res.send(`
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <meta charset="UTF-8">
+        <title>Spotify Dashboard</title>
+        <style>
+          body { font-family: Arial; max-width: 1200px; margin: 50px auto; padding: 20px; }
+          h1 { color: #1DB954; }
+          .menu { margin: 30px 0; }
+          .menu a { 
+            display: inline-block; 
+            margin: 10px; 
+            padding: 15px 25px; 
+            background: #1DB954; 
+            color: white; 
+            text-decoration: none; 
+            border-radius: 5px;
+          }
+          .menu a:hover { background: #1ed760; }
+        </style>
+      </head>
+      <body>
+        <h1>Welcome, ${user.display_name}! 🎵</h1>
+        <p>✅ 사용자 정보가 DB에 저장되었습니다!</p>
+        
+        <div class="menu">
+          <h2>기능 메뉴</h2>
+          <a href="/save-top-tracks?access_token=${access_token}">상위 트랙 저장하기</a>
+          <a href="/search-and-save?access_token=${access_token}">검색 & 저장</a>
+          <a href="/view-db?access_token=${access_token}">DB 조회</a>
+          <a href="/save-all-analysis?access_token=${access_token}">전체 분석 & 저장</a>
+        </div>
+      </body>
+      </html>
+    `);
+
+  } catch (error) {
+    console.error('Error:', error.response?.data || error.message);
+    res.send('Error fetching user data');
+  }
+});
+
+// ==================== 상위 트랙 저장 ====================
+
+app.get('/save-top-tracks', async (req, res) => {
+  const access_token = req.query.access_token;
+
+  try {
+    // 사용자 정보
+    const userResponse = await axios.get('https://api.spotify.com/v1/me', {
+      headers: { 'Authorization': 'Bearer ' + access_token }
+    });
+    const userId = userResponse.data.id;
+
+    // 상위 트랙
+    const topTracksResponse = await axios.get(
+      'https://api.spotify.com/v1/me/top/tracks?limit=10',
+      { headers: { 'Authorization': 'Bearer ' + access_token } }
+    );
+
+    const tracks = topTracksResponse.data.items;
+    let savedCount = 0;
+
+    // 각 트랙 저장
+    for (let i = 0; i < tracks.length; i++) {
+      const track = tracks[i];
+      
+      // 트랙 정보 저장
+      await new Promise((resolve, reject) => {
+        db.run(`
+          INSERT OR REPLACE INTO tracks (id, name, artist_name, artist_id, album_name, album_id, duration_ms, popularity)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        `, [
+          track.id,
+          track.name,
+          track.artists[0].name,
+          track.artists[0].id,
+          track.album.name,
+          track.album.id,
+          track.duration_ms,
+          track.popularity
+        ], (err) => {
+          if (err) reject(err);
+          else resolve();
+        });
+      });
+
+      // 사용자 상위 트랙 기록
+      await new Promise((resolve, reject) => {
+        db.run(`
+          INSERT INTO user_top_tracks (user_id, track_id, rank)
+          VALUES (?, ?, ?)
+        `, [userId, track.id, i + 1], (err) => {
+          if (err) reject(err);
+          else resolve();
+        });
+      });
+
+      savedCount++;
+      console.log(`✅ 저장 완료 (${savedCount}/${tracks.length}): ${track.name}`);
+    }
+
+    res.send(`
+      <!DOCTYPE html>
+      <html>
+      <head><meta charset="UTF-8"><title>저장 완료</title></head>
+      <body style="font-family: Arial; max-width: 800px; margin: 50px auto; padding: 20px;">
+        <h1>✅ ${savedCount}개 트랙 저장 완료!</h1>
+        <ul>
+          ${tracks.map((t, i) => `<li>${i + 1}. ${t.name} - ${t.artists[0].name}</li>`).join('')}
+        </ul>
+        <a href="/dashboard?access_token=${access_token}" style="color: #1DB954;">← 대시보드로 돌아가기</a>
+      </body>
+      </html>
+    `);
+
+  } catch (error) {
+    console.error('Error:', error);
+    res.send('저장 실패: ' + error.message);
+  }
+});
+
+// ==================== 검색 & 저장 ====================
+
+app.get('/search-and-save', (req, res) => {
+  const access_token = req.query.access_token;
+  res.send(`
+    <!DOCTYPE html>
+    <html>
+    <head><meta charset="UTF-8"><title>검색 & 저장</title></head>
+    <body style="font-family: Arial; max-width: 800px; margin: 50px auto; padding: 20px;">
+      <h1>🔍 검색 & DB 저장</h1>
+      <form action="/search-save-result" method="GET">
+        <input type="hidden" name="access_token" value="${access_token}">
+        <input type="text" name="q" placeholder="곡 이름 입력" style="width: 60%; padding: 10px; font-size: 16px;" required>
+        <button type="submit" style="padding: 10px 20px; font-size: 16px; background: #1DB954; color: white; border: none;">검색 & 저장</button>
+      </form>
+      <br>
+      <a href="/dashboard?access_token=${access_token}" style="color: #1DB954;">← 대시보드로 돌아가기</a>
+    </body>
+    </html>
+  `);
+});
+
+app.get('/search-save-result', async (req, res) => {
+  const access_token = req.query.access_token;
+  const query = req.query.q;
+
+  try {
+    const searchResponse = await axios.get(
+      `https://api.spotify.com/v1/search?q=${encodeURIComponent(query)}&type=track&limit=5`,
+      { headers: { 'Authorization': 'Bearer ' + access_token } }
+    );
+
+    const tracks = searchResponse.data.tracks.items;
+
+    // 각 트랙 + 오디오 특성 저장
+    for (const track of tracks) {
+      // 트랙 저장
+      await saveTrack(track);
+
+      // 오디오 특성 가져오기 & 저장
+      const audioResponse = await axios.get(
+        `https://api.spotify.com/v1/audio-features/${track.id}`,
+        { headers: { 'Authorization': 'Bearer ' + access_token } }
+      );
+      
+      await saveAudioFeatures(audioResponse.data);
+
+      // 태그 생성 & 저장
+      const tags = generateTags(audioResponse.data);
+      await saveTags(track.id, tags);
+    }
+
+    res.send(`
+      <!DOCTYPE html>
+      <html>
+      <head><meta charset="UTF-8"><title>저장 완료</title></head>
+      <body style="font-family: Arial; max-width: 800px; margin: 50px auto; padding: 20px;">
+        <h1>✅ ${tracks.length}개 트랙 + 분석 데이터 저장 완료!</h1>
+        <ul>
+          ${tracks.map(t => `<li>${t.name} - ${t.artists[0].name}</li>`).join('')}
+        </ul>
+        <a href="/search-and-save?access_token=${access_token}">다시 검색</a> | 
+        <a href="/view-db?access_token=${access_token}">DB 조회</a>
+      </body>
+      </html>
+    `);
+
+  } catch (error) {
+    console.error('Error:', error);
+    res.send('저장 실패: ' + error.message);
+  }
+});
+
+// ==================== DB 조회 ====================
+
+app.get('/view-db', (req, res) => {
+  const access_token = req.query.access_token;
+
+  // 모든 트랙 조회
+  db.all(`
+    SELECT t.*, af.tempo, af.energy, af.valence
+    FROM tracks t
+    LEFT JOIN audio_features af ON t.id = af.track_id
+    ORDER BY t.created_at DESC
+    LIMIT 50
+  `, [], (err, tracks) => {
+    if (err) {
+      res.send('DB 조회 실패: ' + err.message);
+      return;
+    }
+
+    // 각 트랙의 태그 조회
+    const trackPromises = tracks.map(track => {
+      return new Promise((resolve) => {
+        db.all(`SELECT tag_type, tag_value FROM tags WHERE track_id = ?`, [track.id], (err, tags) => {
+          track.tags = tags || [];
+          resolve(track);
+        });
+      });
+    });
+
+    Promise.all(trackPromises).then(tracksWithTags => {
+      res.send(`
+        <!DOCTYPE html>
+        <html>
+        <head>
+          <meta charset="UTF-8">
+          <title>DB 조회</title>
+          <style>
+            body { font-family: Arial; max-width: 1400px; margin: 50px auto; padding: 20px; }
+            table { width: 100%; border-collapse: collapse; margin: 20px 0; }
+            th, td { padding: 12px; text-align: left; border-bottom: 1px solid #ddd; }
+            th { background: #1DB954; color: white; }
+            .tag { display: inline-block; background: #1DB954; color: white; padding: 3px 8px; margin: 2px; border-radius: 10px; font-size: 12px; }
+          </style>
+        </head>
+        <body>
+          <h1>📊 저장된 데이터 (총 ${tracksWithTags.length}개)</h1>
+          <table>
+            <tr>
+              <th>곡명</th>
+              <th>아티스트</th>
+              <th>앨범</th>
+              <th>템포</th>
+              <th>에너지</th>
+              <th>긍정도</th>
+              <th>태그</th>
+              <th>저장일</th>
+            </tr>
+            ${tracksWithTags.map(t => `
+              <tr>
+                <td><strong>${t.name}</strong></td>
+                <td>${t.artist_name}</td>
+                <td>${t.album_name}</td>
+                <td>${t.tempo ? Math.round(t.tempo) : '-'}</td>
+                <td>${t.energy ? (t.energy * 100).toFixed(0) + '%' : '-'}</td>
+                <td>${t.valence ? (t.valence * 100).toFixed(0) + '%' : '-'}</td>
+                <td>${t.tags.map(tag => `<span class="tag">${tag.tag_value}</span>`).join('')}</td>
+                <td>${new Date(t.created_at).toLocaleDateString('ko-KR')}</td>
+              </tr>
+            `).join('')}
+          </table>
+          <a href="/dashboard?access_token=${access_token}" style="color: #1DB954;">← 대시보드로 돌아가기</a>
+        </body>
+        </html>
+      `);
+    });
+  });
+});
+
+// ==================== 전체 분석 & 저장 ====================
+
+app.get('/save-all-analysis', async (req, res) => {
+  const access_token = req.query.access_token;
+
+  try {
+    // 상위 10개 트랙
+    const topTracksResponse = await axios.get(
+      'https://api.spotify.com/v1/me/top/tracks?limit=10',
+      { headers: { 'Authorization': 'Bearer ' + access_token } }
+    );
+
+    const tracks = topTracksResponse.data.items;
+    const trackIds = tracks.map(t => t.id).join(',');
+
+    // 오디오 특성 일괄 조회
+    const audioResponse = await axios.get(
+      `https://api.spotify.com/v1/audio-features?ids=${trackIds}`,
+      { headers: { 'Authorization': 'Bearer ' + access_token } }
+    );
+
+    // 저장
+    for (let i = 0; i < tracks.length; i++) {
+      await saveTrack(tracks[i]);
+      await saveAudioFeatures(audioResponse.data.audio_features[i]);
+      const tags = generateTags(audioResponse.data.audio_features[i]);
+      await saveTags(tracks[i].id, tags);
+    }
+
+    res.send(`
+      <!DOCTYPE html>
+      <html>
+      <head><meta charset="UTF-8"><title>분석 완료</title></head>
+      <body style="font-family: Arial; max-width: 800px; margin: 50px auto; padding: 20px;">
+        <h1>✅ ${tracks.length}개 트랙 분석 & 저장 완료!</h1>
+        <p>트랙 정보, 오디오 특성, 태그가 모두 DB에 저장되었습니다.</p>
+        <a href="/view-db?access_token=${access_token}">DB 조회하기</a>
+      </body>
+      </html>
+    `);
+
+  } catch (error) {
+    console.error('Error:', error);
+    res.send('분석 실패: ' + error.message);
+  }
+});
+
+// ==================== 헬퍼 함수 ====================
+
+function saveTrack(track) {
+  return new Promise((resolve, reject) => {
+    db.run(`
+      INSERT OR REPLACE INTO tracks (id, name, artist_name, artist_id, album_name, album_id, duration_ms, popularity)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    `, [
+      track.id,
+      track.name,
+      track.artists[0].name,
+      track.artists[0].id,
+      track.album.name,
+      track.album.id,
+      track.duration_ms,
+      track.popularity
+    ], (err) => {
+      if (err) reject(err);
+      else {
+        console.log(`✅ 트랙 저장: ${track.name}`);
+        resolve();
+      }
+    });
+  });
+}
+
+function saveAudioFeatures(audio) {
+  return new Promise((resolve, reject) => {
+    db.run(`
+      INSERT OR REPLACE INTO audio_features (track_id, tempo, energy, valence, danceability, acousticness, instrumentalness)
+      VALUES (?, ?, ?, ?, ?, ?, ?)
+    `, [
+      audio.id,
+      audio.tempo,
+      audio.energy,
+      audio.valence,
+      audio.danceability,
+      audio.acousticness,
+      audio.instrumentalness
+    ], (err) => {
+      if (err) reject(err);
+      else {
+        console.log(`✅ 오디오 특성 저장: ${audio.id}`);
+        resolve();
+      }
+    });
+  });
+}
+
+function saveTags(trackId, tags) {
+  return new Promise((resolve, reject) => {
+    // 기존 태그 삭제
+    db.run(`DELETE FROM tags WHERE track_id = ?`, [trackId], (err) => {
+      if (err) {
+        reject(err);
+        return;
+      }
+
+      // 새 태그 저장
+      const stmt = db.prepare(`INSERT INTO tags (track_id, tag_type, tag_value) VALUES (?, ?, ?)`);
+      
+      for (const tag of tags) {
+        const [type, value] = tag.split(': ');
+        stmt.run(trackId, type, value);
+      }
+      
+      stmt.finalize((err) => {
+        if (err) reject(err);
+        else {
+          console.log(`✅ 태그 저장: ${trackId} (${tags.length}개)`);
+          resolve();
+        }
+      });
+    });
+  });
+}
+
+function generateTags(audioFeatures) {
+  const tags = [];
+  const { tempo, energy, valence, danceability, acousticness, instrumentalness } = audioFeatures;
+
+  if (tempo < 90) tags.push('템포: 느림');
+  else if (tempo <= 120) tags.push('템포: 중간');
+  else tags.push('템포: 빠름');
+
+  if (energy < 0.40 && valence >= 0.50) tags.push('분위기: 편안함');
+  if (energy < 0.40 && valence < 0.50) tags.push('분위기: 차분함');
+  if (energy >= 0.60 && valence >= 0.60) tags.push('분위기: 신남');
+  if (instrumentalness >= 0.60) tags.push('분위기: 집중');
+
+  if (energy < 0.55 && tempo < 115) tags.push('타입: 차분');
+  else tags.push('타입: 활발');
+
+  if (tempo >= 60 && tempo <= 100 && energy < 0.5 && instrumentalness >= 0.5) {
+    tags.push('활동: 공부/집중');
+  }
+  if (tempo > 120 && energy >= 0.7 && danceability >= 0.6) {
+    tags.push('활동: 운동');
+  }
+  if (tempo >= 70 && tempo <= 110 && energy < 0.5) {
+    tags.push('활동: 휴식');
+  }
+
+  return tags;
+}
+
+// ==================== 서버 시작 ====================
+
+app.listen(PORT, () => {
+  console.log(`🎵 서버 실행: http://localhost:${PORT}`);
+  console.log(`🔑 로그인: http://localhost:${PORT}/login`);
+});
