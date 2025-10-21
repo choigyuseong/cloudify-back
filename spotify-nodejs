@@ -1,0 +1,101 @@
+// 필요한 패키지 설치: npm install express axios
+
+const express = require('express');
+const axios = require('axios');
+const querystring = require('querystring');
+
+const app = express();
+const PORT = 8888;
+
+// Spotify 앱 정보 (여기에 본인의 정보 입력)
+const CLIENT_ID = '7a22c29754bd49509e0476f93febd709';
+const CLIENT_SECRET = '667186f0278b465c97e8a524d508a79f';
+const REDIRECT_URI = 'http://localhost:8888/callback';
+
+// 인증에 필요한 scope (권한)
+const SCOPE = 'user-read-private user-read-email user-top-read playlist-read-private';
+
+// 1. 로그인 페이지
+app.get('/login', (req, res) => {
+  const authUrl = 'https://accounts.spotify.com/authorize?' + 
+    querystring.stringify({
+      response_type: 'code',
+      client_id: CLIENT_ID,
+      scope: SCOPE,
+      redirect_uri: REDIRECT_URI,
+    });
+  
+  res.redirect(authUrl);
+});
+
+// 2. 콜백 - 액세스 토큰 받기
+app.get('/callback', async (req, res) => {
+  const code = req.query.code || null;
+
+  try {
+    const response = await axios.post(
+      'https://accounts.spotify.com/api/token',
+      querystring.stringify({
+        code: code,
+        redirect_uri: REDIRECT_URI,
+        grant_type: 'authorization_code',
+      }),
+      {
+        headers: {
+          'Authorization': 'Basic ' + Buffer.from(CLIENT_ID + ':' + CLIENT_SECRET).toString('base64'),
+          'Content-Type': 'application/x-www-form-urlencoded',
+        },
+      }
+    );
+
+    const { access_token, refresh_token } = response.data;
+    
+    // 액세스 토큰을 쿼리로 전달
+    res.redirect('/user?access_token=' + access_token);
+    
+  } catch (error) {
+    console.error('Error getting token:', error.response?.data || error.message);
+    res.send('Error during authentication');
+  }
+});
+
+// 3. 사용자 정보 가져오기 예제
+app.get('/user', async (req, res) => {
+  const access_token = req.query.access_token;
+
+  try {
+    // Spotify API 호출
+    const userResponse = await axios.get('https://api.spotify.com/v1/me', {
+      headers: { 'Authorization': 'Bearer ' + access_token }
+    });
+
+    const topTracksResponse = await axios.get(
+      'https://api.spotify.com/v1/me/top/tracks?limit=5',
+      { headers: { 'Authorization': 'Bearer ' + access_token } }
+    );
+
+    // 결과 출력
+    res.send(`
+      <h1>Welcome, ${userResponse.data.display_name}!</h1>
+      <p>Email: ${userResponse.data.email}</p>
+      <p>Country: ${userResponse.data.country}</p>
+      
+      <h2>Your Top 5 Tracks:</h2>
+      <ul>
+        ${topTracksResponse.data.items.map(track => 
+          `<li>${track.name} - ${track.artists[0].name}</li>`
+        ).join('')}
+      </ul>
+    `);
+
+  } catch (error) {
+    console.error('Error fetching user data:', error.response?.data || error.message);
+    res.send('Error fetching user data');
+  }
+});
+
+// 서버 시작
+app.listen(PORT, () => {
+  console.log(`Server running on http://localhost:${PORT}`);
+  console.log(`Login at: http://localhost:${PORT}/login`);
+});
