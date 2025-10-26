@@ -47,6 +47,7 @@ dependencies {
     // ─────────────────────────────────────────────────────────────────────────
     implementation 'org.springframework.boot:spring-boot-starter-data-jpa'
     runtimeOnly 'org.postgresql:postgresql'
+    implementation 'org.postgresql:postgresql'       // 엔티티(Entity) ↔ 테이블 자동 매핑
 
     // ─────────────────────────────────────────────────────────────────────────
     // Observability
@@ -104,8 +105,10 @@ dependencies {
     // testImplementation 'org.testcontainers:junit-jupiter'
     // testImplementation 'org.testcontainers:postgresql'
 
-    implementation 'com.opencsv:opencsv:5.9'         // ✅ CSV 파일 파싱 (CsvLoader)
-    implementation 'org.json:json:20240303'          // ✅ YouTubeService에서 JSONObject 사용
+    implementation 'org.springframework.boot:spring-boot-starter-webflux'   // LLM WebClient
+    implementation 'org.springframework.boot:spring-boot-starter-cache'     // YouTube 캐싱
+    implementation 'com.opencsv:opencsv:5.9'                                // CSV 파일 로드
+    implementation 'org.json:json:20240303'             // YouTubeService에서 JSONObject 사용
 }
 
 
