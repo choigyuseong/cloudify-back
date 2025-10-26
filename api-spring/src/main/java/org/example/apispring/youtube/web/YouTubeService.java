@@ -1,43 +1,60 @@
 package org.example.apispring.youtube.web;
 
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestTemplate;
 import org.springframework.web.util.UriComponentsBuilder;
+import org.example.apispring.youtube.infra.YouTubeCache;
 import org.json.JSONArray;
 import org.json.JSONObject;
 
-import java.util.Map;
-import java.util.concurrent.*;
+import java.util.concurrent.CompletableFuture;
 
+@Slf4j
 @Service
 public class YouTubeService {
 
-    @Value("${cloudify.youtube.apiKey}")
+    @Value("${cloudify.youtube.apiKey:}")
     private String apiKey;
 
     private static final String SEARCH_URL = "https://www.googleapis.com/youtube/v3/search";
     private final RestTemplate restTemplate = new RestTemplate();
+    private final YouTubeCache cache;
 
-    // ✅ 캐시 (ConcurrentHashMap)
-    private final Map<String, String> cache = new ConcurrentHashMap<>();
+    public YouTubeService(YouTubeCache cache) {
+        this.cache = cache;
+    }
 
-    // 비동기 검색
+    /**
+     * 🎬 YouTube 검색 (비동기)
+     * 제목 + 아티스트 기반으로 videoId를 탐색
+     */
     @Async
     public CompletableFuture<String> fetchVideoIdAsync(String title, String artist) {
         return CompletableFuture.supplyAsync(() -> fetchVideoIdBySearch(title, artist));
     }
 
-    // ✅ 캐시 + 비동기 + 유사도 기반 검색
+    /**
+     * 🎬 YouTube 검색 (동기)
+     * 캐시 확인 후, 없으면 API 호출
+     */
     public String fetchVideoIdBySearch(String title, String artist) {
-        if (apiKey == null || apiKey.isBlank()) return null;
+        if (apiKey == null || apiKey.isBlank()) {
+            log.warn("❌ YouTube API key is missing");
+            return null;
+        }
+
         if (title == null || artist == null) return null;
 
         String key = (title + "|" + artist).toLowerCase();
-        if (cache.containsKey(key)) {
-            System.out.printf("⚡ [Cache Hit] %s - %s → %s%n", title, artist, cache.get(key));
-            return cache.get(key);
+
+        // ✅ 캐시 조회
+        String cached = cache.get(key);
+        if (cached != null) {
+            log.debug("⚡ Cache Hit [{} - {}] → {}", title, artist, cached);
+            return cached;
         }
 
         try {
@@ -54,7 +71,7 @@ public class YouTubeService {
             JSONObject json = new JSONObject(response);
             JSONArray items = json.getJSONArray("items");
 
-            double bestScore = 0;
+            double bestScore = 0.0;
             String bestId = null;
 
             for (int i = 0; i < items.length(); i++) {
@@ -72,16 +89,15 @@ public class YouTubeService {
 
             if (bestId != null) {
                 cache.put(key, bestId);
-                System.out.printf("🎬 [YouTube Fetch] %s - %s | score=%.2f → %s%n",
-                        title, artist, bestScore, bestId);
+                log.info("🎬 [YouTube Fetch] {} - {} | score={}", title, artist, bestScore);
             } else {
-                System.out.printf("⚠️ [No Match] %s - %s%n", title, artist);
+                log.warn("⚠️ No match found for {} - {}", title, artist);
             }
 
             return bestId;
 
         } catch (Exception e) {
-            System.err.println("❌ YouTube API error: " + e.getMessage());
+            log.error("❌ YouTube API error: {}", e.getMessage());
             return null;
         }
     }
@@ -94,8 +110,8 @@ public class YouTubeService {
         return (double) common / (sa.length + sb.length - common + 1e-6);
     }
 
-    // ✅ 헬퍼 메서드
-    public static String watchUrl(String videoId) { return "https://www.youtube.com/watch?v=" + videoId; }
-    public static String embedUrl(String videoId) { return "https://www.youtube.com/embed/" + videoId; }
-    public static String thumbnailUrl(String videoId) { return "https://img.youtube.com/vi/" + videoId + "/hqdefault.jpg"; }
+    // ✅ 헬퍼 URL 생성기
+    public static String watchUrl(String id) { return "https://www.youtube.com/watch?v=" + id; }
+    public static String embedUrl(String id) { return "https://www.youtube.com/embed/" + id; }
+    public static String thumbnailUrl(String id) { return "https://img.youtube.com/vi/" + id + "/hqdefault.jpg"; }
 }

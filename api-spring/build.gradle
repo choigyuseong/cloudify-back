@@ -103,7 +103,12 @@ dependencies {
     testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
     // testImplementation 'org.testcontainers:junit-jupiter'
     // testImplementation 'org.testcontainers:postgresql'
+
+    implementation 'com.opencsv:opencsv:5.9'         // ✅ CSV 파일 파싱 (CsvLoader)
+    implementation 'org.json:json:20240303'          // ✅ YouTubeService에서 JSONObject 사용
 }
+
+
 
 
 

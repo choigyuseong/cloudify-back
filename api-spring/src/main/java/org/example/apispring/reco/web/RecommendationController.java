@@ -31,15 +31,13 @@ public class RecommendationController {
 
     /**
      * 🎯 POST /api/recommend
-     * 입력된 CanonicalTagQuery(JSON) 기반으로 상위 N곡 추천
-     * 기본값: 30곡
+     * 입력된 CanonicalTagQuery(JSON) 기반으로 상위 30곡 추천
+     * - 기능 명세서 기준: 항상 30곡 반환
      */
     @PostMapping
-    public ResponseEntity<List<SongResponse>> recommend(
-            @RequestBody CanonicalTagQuery query,
-            @RequestParam(defaultValue = "30") int n) {
+    public ResponseEntity<List<SongResponse>> recommend(@RequestBody CanonicalTagQuery query) {
 
-        var list = recommender.recommend(query, n);
+        var list = recommender.recommend(query);
 
         if (list.isEmpty()) {
             return ResponseEntity.noContent().build();
@@ -100,8 +98,12 @@ public class RecommendationController {
                 new CanonicalTagQuery.Tag("BRANCH.calm"),
                 new CanonicalTagQuery.Tag("TEMPO.slow")
         ));
-        return recommend(query, 30);
+        return ResponseEntity.ok(recommender.recommend(query));
     }
 
+    /**
+     * ✅ 내부 응답 DTO (record 형태)
+     * - 단일 videoId만 반환할 때 사용
+     */
     public record VideoIdResponse(String videoId) {}
 }

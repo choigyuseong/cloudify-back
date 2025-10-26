@@ -13,6 +13,23 @@ import java.util.*;
 @Component
 public class CsvLoader {
 
+    // ✅ 캐시된 곡 목록 (최초 1회만 CSV 로드)
+    private List<SongRecord> songsCache = new ArrayList<>();
+
+    /**
+     * 🎯 외부 접근용 - 캐시된 곡 리스트 반환
+     * - 비어있으면 자동으로 CSV 로드
+     */
+    public List<SongRecord> getSongs() {
+        if (songsCache.isEmpty()) {
+            songsCache = load("data/songs.csv", "data/constraints.csv");
+        }
+        return songsCache;
+    }
+
+    /**
+     * 🎯 songs.csv + constraints.csv 로드
+     */
     public List<SongRecord> load(String songsPath, String constraintsPath) {
         try {
             var songs = readSongs(songsPath);
@@ -71,11 +88,11 @@ public class CsvLoader {
             var c = consMap.get(key(s.title, s.artist));
             if (c == null) continue;
             var tc = new TrackConstraints(
-                    MOOD.valueOf(c.mood.toLowerCase()),
-                    GENRE.valueOf(c.genre.toLowerCase()),
-                    ACTIVITY.valueOf(c.activity.toLowerCase()),
-                    BRANCH.valueOf(c.branch.toLowerCase()),
-                    TEMPO.valueOf(c.tempo.toLowerCase())
+                    MOOD.valueOf(c.mood.toUpperCase()),
+                    GENRE.valueOf(c.genre.toUpperCase()),
+                    ACTIVITY.valueOf(c.activity.toUpperCase()),
+                    BRANCH.valueOf(c.branch.toUpperCase()),
+                    TEMPO.valueOf(c.tempo.toUpperCase())
             );
             out.add(new SongRecord(s.title, s.artist, tc));
         }
