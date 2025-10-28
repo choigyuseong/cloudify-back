@@ -2,6 +2,8 @@ package org.example.apispring.global.security;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
+import org.example.apispring.global.error.ErrorCode;
+import org.example.apispring.global.error.ErrorResponse;
 import org.springframework.http.MediaType;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.web.access.AccessDeniedHandler;
@@ -20,14 +22,11 @@ public class JsonAccessDeniedHandler implements AccessDeniedHandler {
     private final ObjectMapper om;
 
     @Override
-    public void handle(HttpServletRequest request, HttpServletResponse response, AccessDeniedException ex) throws IOException {
-        // TODO: GlobalExceptionHandler의 ErrorResponse와 스키마 통일
-        response.setStatus(HttpServletResponse.SC_FORBIDDEN);
-        response.setContentType(MediaType.APPLICATION_JSON_VALUE);
-        response.setCharacterEncoding(StandardCharsets.UTF_8.name());
-        om.writeValue(response.getWriter(), Map.of(
-                "code", "FORBIDDEN",
-                "message", "You do not have permission to access this resource"
-        ));
+    public void handle(HttpServletRequest req, HttpServletResponse res, AccessDeniedException ex) throws IOException {
+        var ec = ErrorCode.FORBIDDEN;
+        res.setStatus(ec.getHttpStatus().value());
+        res.setContentType(MediaType.APPLICATION_JSON_VALUE);
+        res.setCharacterEncoding(StandardCharsets.UTF_8.name());
+        om.writeValue(res.getWriter(), ErrorResponse.of(ec));
     }
 }

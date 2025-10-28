@@ -2,6 +2,8 @@ package org.example.apispring.global.security;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
+import org.example.apispring.global.error.ErrorCode;
+import org.example.apispring.global.error.ErrorResponse;
 import org.springframework.http.MediaType;
 import org.springframework.security.core.AuthenticationException;
 import org.springframework.security.web.AuthenticationEntryPoint;
@@ -11,7 +13,6 @@ import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
-import java.util.Map;
 
 @Component
 @RequiredArgsConstructor
@@ -20,15 +21,20 @@ public class JsonAuthenticationEntryPoint implements AuthenticationEntryPoint {
     private final ObjectMapper om;
 
     @Override
-    public void commence(HttpServletRequest request, HttpServletResponse response, AuthenticationException ex) throws IOException {
-        // TODO: GlobalExceptionHandler의 ErrorResponse와 스키마 통일
-        response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
-        response.setContentType(MediaType.APPLICATION_JSON_VALUE);
-        response.setCharacterEncoding(StandardCharsets.UTF_8.name());
-        om.writeValue(response.getWriter(), Map.of(
-                "code", "UNAUTHORIZED",
-                "message", "Authentication required or token invalid"
-        ));
+    public void commence(HttpServletRequest req, HttpServletResponse res, AuthenticationException ex) throws IOException {
+        Throwable cause = (ex.getCause() != null) ? ex.getCause() : ex;
+        ErrorCode ec = mapJwtError(cause);
+
+        res.setStatus(ec.getHttpStatus().value());
+        res.setContentType(MediaType.APPLICATION_JSON_VALUE);
+        res.setCharacterEncoding(StandardCharsets.UTF_8.name());
+        om.writeValue(res.getWriter(), ErrorResponse.of(ec));
+    }
+
+    private ErrorCode mapJwtError(Throwable t) {
+        if (t instanceof io.jsonwebtoken.ExpiredJwtException) return ErrorCode.JWT_EXPIRED;
+        if (t instanceof io.jsonwebtoken.JwtException || t instanceof IllegalArgumentException) return ErrorCode.JWT_INVALID;
+        return ErrorCode.UNAUTHORIZED;
     }
 }
 

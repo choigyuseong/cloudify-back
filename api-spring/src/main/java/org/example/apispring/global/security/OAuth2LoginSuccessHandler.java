@@ -8,6 +8,7 @@ import org.example.apispring.auth.application.OAuthCredentialService;
 import org.example.apispring.global.security.jwt.JwtProperties;
 import org.example.apispring.global.security.jwt.JwtTokenProvider;
 import org.example.apispring.user.application.UserService;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.http.ResponseCookie;
 import org.springframework.security.core.Authentication;
@@ -33,6 +34,12 @@ public class OAuth2LoginSuccessHandler implements AuthenticationSuccessHandler {
     private final JwtTokenProvider jwt;
     private final JwtProperties jwtProperties;
     private final StringRedisTemplate redis;
+
+    @Value("${security.cookie.secure:false}")
+    private boolean cookieSecure;
+
+    @Value("${security.cookie.samesite:None}")
+    private String cookieSameSite;
 
     private static final String AT = "AT";
     private static final String RT = "RT";
@@ -77,8 +84,8 @@ public class OAuth2LoginSuccessHandler implements AuthenticationSuccessHandler {
         long ttlSec = (refreshClaims.exp().getEpochSecond() - Instant.now().getEpochSecond());
         redis.opsForValue().set(key, refreshClaims.jti(), ttlSec, TimeUnit.SECONDS);
 
-        setCookie(response, AT, accessJwt, (int)(jwtProperties.getAccessTokenExpiration()/1000));
-        setCookie(response, RT, refreshJwt, (int)(jwtProperties.getRefreshTokenExpiration()/1000));
+        addCookie(response, AT, accessJwt, (int)(jwtProperties.getAccessTokenExpiration()/1000));
+        addCookie(response, RT, refreshJwt, (int)(jwtProperties.getRefreshTokenExpiration()/1000));
 
         try {
             response.sendRedirect("/"); // TODO: 프론트 첫 화면 경로에 맞게 조정
@@ -87,20 +94,15 @@ public class OAuth2LoginSuccessHandler implements AuthenticationSuccessHandler {
         }
     }
 
-    private void setCookie(HttpServletResponse res, String name, String value, int maxAgeSec) {
-        Cookie c = new Cookie(name, value);
-        c.setHttpOnly(true);
-        c.setSecure(true); // HTTPS 전제
-        c.setPath("/");
-        c.setMaxAge(maxAgeSec);
-        // SameSite=None; Spring Cookie에는 직접 속성 없음 → 헤더로 추가하는 편의 메서드 사용하거나 ResponseCookie 사용
-        res.setHeader("Set-Cookie",
-                ResponseCookie.from(name, value)
-                        .httpOnly(true)
-                        .secure(true)
-                        .sameSite("None")
-                        .path("/")
-                        .maxAge(Duration.ofSeconds(maxAgeSec))
-                        .build().toString());
+    private void addCookie(HttpServletResponse res, String name, String value, int maxAgeSec, String path) {
+        ResponseCookie rc = ResponseCookie.from(name, value)
+                .httpOnly(true)
+                .secure(cookieSecure)               // env
+                .sameSite(cookieSameSite)           // env
+                .path(path)
+                .maxAge(Duration.ofSeconds(maxAgeSec))
+                .build();
+
+        res.addHeader("Set-Cookie", rc.toString()); // ★ addHeader 로 누적
     }
 }
