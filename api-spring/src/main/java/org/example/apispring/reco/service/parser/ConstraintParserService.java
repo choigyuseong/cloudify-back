@@ -1,4 +1,4 @@
-package org.example.apispring.reco.service;
+package org.example.apispring.reco.service.parser;
 
 import org.example.apispring.reco.dto.CanonicalTagQuery;
 
