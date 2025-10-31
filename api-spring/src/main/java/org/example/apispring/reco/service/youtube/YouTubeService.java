@@ -1,4 +1,4 @@
-package org.example.apispring.youtube.web;
+package org.example.apispring.reco.service.youtube;
 
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
@@ -6,7 +6,6 @@ import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestTemplate;
 import org.springframework.web.util.UriComponentsBuilder;
-import org.example.apispring.youtube.infra.YouTubeCache;
 import org.json.JSONArray;
 import org.json.JSONObject;
 

@@ -3,7 +3,7 @@ package org.example.apispring.reco.service;
 import org.example.apispring.reco.domain.SongRecord;
 import org.example.apispring.reco.dto.CanonicalTagQuery;
 import org.example.apispring.reco.dto.SongResponse;
-import org.example.apispring.youtube.web.YouTubeService;
+import org.example.apispring.reco.service.youtube.YouTubeService;
 import org.springframework.stereotype.Service;
 
 import java.util.*;

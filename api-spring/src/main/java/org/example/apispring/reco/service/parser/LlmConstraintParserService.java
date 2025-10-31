@@ -1,16 +1,15 @@
-package org.example.apispring.reco.service;
+package org.example.apispring.reco.service.parser;
 
-import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.example.apispring.reco.domain.TagEnums.*;
 import org.example.apispring.reco.dto.CanonicalTagQuery;
+import org.example.apispring.reco.service.parser.ConstraintParserService;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.*;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestTemplate;
 
-import java.time.Duration;
 import java.util.*;
 import java.util.stream.Collectors;
 

@@ -1,4 +1,4 @@
-package org.example.apispring.youtube.infra;
+package org.example.apispring.reco.service.youtube;
 
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
