@@ -32,17 +32,15 @@ public class SecurityConfig {
                         .accessDeniedHandler(accessDeniedHandler)
                 )
                 .authorizeHttpRequests(auth -> auth
-                        .requestMatchers("/",
-                                "/actuator/health",
-                                "/error",
-                                "/v3/api-docs/**",
-                                "/swagger-ui/**",
-                                "/swagger-ui.html",
-                                "/oauth2/**",
-                                "/login/oauth2/**",
-                                "/api/auth/refresh"
+                        .requestMatchers(
+                                "/", "/actuator/health", "/error",
+                                "/v3/api-docs/**", "/swagger-ui/**", "/swagger-ui.html",
+                                "/oauth2/**", "/login/oauth2/**",
+                                "/api/auth/refresh",
+                                // ✅ Swagger 테스트용 임시 허용 경로
+                                "/api/**"
                         ).permitAll()
-                        .anyRequest().authenticated()
+                        .anyRequest().permitAll()
                 )
                 .oauth2Login(oauth -> oauth
                         .authorizationEndpoint(ep -> ep.authorizationRequestResolver(googleOAuth2RequestResolver))
@@ -50,6 +48,7 @@ public class SecurityConfig {
                         .failureHandler(oAuth2LoginFailureHandler)
                 );
 
+        // ⚠️ JWT 필터는 유지하지만, 인증 검사는 사실상 통과됨
         http.addFilterBefore(jwtAuthFilter, UsernamePasswordAuthenticationFilter.class);
         return http.build();
     }

@@ -54,6 +54,7 @@ public class RecommendationController {
                             YouTubeService.watchUrl(videoId),
                             YouTubeService.embedUrl(videoId),
                             YouTubeService.thumbnailUrl(videoId),
+                            song.albumImageUrl(),   // ✅ 추가됨 (GeniusService 결과)
                             song.score()
                     );
                 }))

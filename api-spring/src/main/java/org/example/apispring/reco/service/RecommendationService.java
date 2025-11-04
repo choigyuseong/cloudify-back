@@ -15,6 +15,7 @@ public class RecommendationService {
 
     private final CsvLoader csvLoader;
     private final YouTubeService youtubeService;
+    private final GeniusService geniusService; // ✅ Genius API 서비스 추가
 
     // 🎯 태그별 가중치 (정책 기반)
     private static final Map<String, Double> WEIGHTS = Map.of(
@@ -25,15 +26,16 @@ public class RecommendationService {
             "TEMPO", 0.05
     );
 
-    public RecommendationService(CsvLoader csvLoader, YouTubeService youtubeService) {
+    public RecommendationService(CsvLoader csvLoader, YouTubeService youtubeService, GeniusService geniusService) {
         this.csvLoader = csvLoader;
         this.youtubeService = youtubeService;
+        this.geniusService = geniusService;
     }
 
     /**
      * 🎯 CanonicalTagQuery 기반 추천 (Top-30)
      * - CSV 로드 후 곡별 유사도 계산
-     * - YouTube videoId 비동기로 병렬 조회
+     * - YouTube videoId 및 Genius 앨범 이미지 비동기 조회
      */
     public List<SongResponse> recommend(CanonicalTagQuery query) {
         List<SongRecord> songs = csvLoader.getSongs();
@@ -64,15 +66,20 @@ public class RecommendationService {
                 .limit(30)
                 .toList();
 
-        // ✅ 비동기 YouTube videoId 조회
+        // ✅ 비동기 YouTube + Genius API 조회
         ExecutorService executor = Executors.newFixedThreadPool(8);
         List<CompletableFuture<SongResponse>> futures = top30.stream()
                 .map(entry -> CompletableFuture.supplyAsync(() -> {
                     SongRecord s = entry.getKey();
                     double score = entry.getValue();
 
+                    // 🎥 YouTube 정보
                     String videoId = youtubeService.fetchVideoIdBySearch(s.title(), s.artist());
 
+                    // 🎨 Genius 앨범 이미지
+                    String albumImageUrl = geniusService.fetchAlbumImage(s.title(), s.artist());
+
+                    // 🎧 SongResponse 생성 (record 기반)
                     return new SongResponse(
                             s.title(),
                             s.artist(),
@@ -80,6 +87,7 @@ public class RecommendationService {
                             YouTubeService.watchUrl(videoId),
                             YouTubeService.embedUrl(videoId),
                             YouTubeService.thumbnailUrl(videoId),
+                            albumImageUrl,  // ✅ 추가
                             score
                     );
                 }, executor))
