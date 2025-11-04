@@ -1,0 +1,104 @@
+// ==================== 대시보드 ====================
+
+app.get('/dashboard', async (req, res) => {
+  const access_token = req.query.access_token;
+
+  if (!access_token) {
+    return res.send('❌ Access token missing. <a href="/login">로그인</a>');
+  }
+
+  try {
+    console.log('🔍 Dashboard 접근...');
+    
+    const userResponse = await axios.get('https://api.spotify.com/v1/me', {
+      headers: { 'Authorization': 'Bearer ' + access_token },
+      timeout: 5000
+    });
+
+    const user = userResponse.data;
+    console.log('✅ 사용자:', user.display_name);
+    
+    // DB 저장 (실패해도 계속 진행)
+    try {
+      await pool.query(`
+        INSERT INTO users (id, display_name, email, country)
+        VALUES ($1, $2, $3, $4)
+        ON CONFLICT (id) DO UPDATE SET
+          display_name = EXCLUDED.display_name,
+          email = EXCLUDED.email,
+          country = EXCLUDED.country
+      `, [user.id, user.display_name, user.email, user.country]);
+      console.log('✅ DB 저장 성공');
+    } catch (dbErr) {
+      console.error('⚠️ DB 저장 실패 (계속 진행):', dbErr.message);
+    }
+
+    // 응답 전송
+    const html = `
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <meta charset="UTF-8">
+        <title>Spotify Dashboard</title>
+        <style>
+          body { font-family: Arial; max-width: 1200px; margin: 50px auto; padding: 20px; background: #f5f5f5; }
+          h1 { color: #1DB954; }
+          .container { background: white; padding: 30px; border-radius: 10px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }
+          .menu { margin: 30px 0; }
+          .menu a { 
+            display: inline-block; 
+            margin: 10px; 
+            padding: 15px 25px; 
+            background: #1DB954; 
+            color: white; 
+            text-decoration: none; 
+            border-radius: 5px;
+            transition: background 0.3s;
+          }
+          .menu a:hover { background: #1ed760; }
+          .highlight { background: #17a2b8 !important; font-size: 18px; font-weight: bold; }
+          .info { background: #e7f3ff; padding: 15px; border-radius: 5px; margin: 20px 0; border-left: 4px solid #2196F3; }
+        </style>
+      </head>
+      <body>
+        <div class="container">
+          <h1>Welcome, ${user.display_name}! 🎵</h1>
+          <div class="info">
+            <p>✅ 사용자 정보가 PostgreSQL에 저장되었습니다!</p>
+            <p>📧 Email: ${user.email || 'N/A'}</p>
+            <p>🌍 Country: ${user.country || 'N/A'}</p>
+          </div>
+          
+          <div class="menu">
+            <h2>기능 메뉴</h2>
+            <a href="/collect-by-genres?access_token=${access_token}" class="highlight">🎼 장르별 곡 대량 수집</a>
+            <a href="/search-and-save?access_token=${access_token}">🔍 검색 & 저장</a>
+            <a href="/view-db?access_token=${access_token}">📊 DB 조회</a>
+            <a href="/db-stats?access_token=${access_token}">📈 통계</a>
+            <a href="/debug-tags?access_token=${access_token}" style="background: #dc3545;">🔍 디버그</a>
+          </div>
+        </div>
+      </body>
+      </html>
+    `;
+    
+    res.send(html);
+    console.log('✅ Dashboard 전송 완료');
+
+  } catch (error) {
+    console.error('❌ Dashboard 에러:', error.message);
+    const errorHtml = `
+      <!DOCTYPE html>
+      <html>
+      <head><meta charset="UTF-8"><title>에러</title></head>
+      <body style="font-family: Arial; max-width: 800px; margin: 50px auto; padding: 20px;">
+        <h1>❌ 에러 발생</h1>
+        <p><strong>에러:</strong> ${error.message}</p>
+        <p><strong>상세:</strong> ${JSON.stringify(error.response?.data || {})}</p>
+        <a href="/login" style="padding: 10px 20px; background: #1DB954; color: white; text-decoration: none; border-radius: 5px; display: inline-block; margin-top: 20px;">다시 로그인</a>
+      </body>
+      </html>
+    `;
+    res.send(errorHtml);
+  }
+});
