@@ -1,0 +1,63 @@
+// ==================== DB 조회 ====================
+
+app.get('/view-db', async (req, res) => {
+  const access_token = req.query.access_token;
+
+  try {
+    const result = await pool.query(`
+      SELECT t.*, af.tempo, af.energy, af.valence
+      FROM tracks t
+      LEFT JOIN audio_features af ON t.id = af.track_id
+      ORDER BY t.created_at DESC
+    `);
+
+    const tracks = result.rows;
+
+    for (let track of tracks) {
+      const tagsResult = await pool.query(
+        `SELECT tag_type, tag_value FROM tags WHERE track_id = $1`,
+        [track.id]
+      );
+      track.tags = tagsResult.rows;
+    }
+
+    res.send(`
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <meta charset="UTF-8">
+        <title>DB 조회</title>
+        <style>
+          body { font-family: Arial; max-width: 1400px; margin: 50px auto; padding: 20px; }
+          table { width: 100%; border-collapse: collapse; margin: 20px 0; }
+          th, td { padding: 12px; text-align: left; border-bottom: 1px solid #ddd; }
+          th { background: #1DB954; color: white; }
+          .tag { display: inline-block; background: #1DB954; color: white; padding: 3px 8px; margin: 2px; border-radius: 10px; font-size: 12px; }
+        </style>
+      </head>
+      <body>
+        <h1>📊 저장된 데이터</h1>
+        <p>총 ${tracks.length}개</p>
+        <table>
+          <tr><th>곡명</th><th>아티스트</th><th>앨범</th><th>템포</th><th>에너지</th><th>태그</th></tr>
+          ${tracks.map(t => `
+            <tr>
+              <td><strong>${t.name}</strong></td>
+              <td>${t.artist_name}</td>
+              <td>${t.album_name}</td>
+              <td>${t.tempo ? Math.round(t.tempo) : '-'}</td>
+              <td>${t.energy ? (t.energy * 100).toFixed(0) + '%' : '-'}</td>
+              <td>${t.tags.map(tag => `<span class="tag">${tag.tag_value}</span>`).join('')}</td>
+            </tr>
+          `).join('')}
+        </table>
+        <a href="/dashboard?access_token=${access_token}">← 대시보드</a>
+      </body>
+      </html>
+    `);
+
+  } catch (error) {
+    console.error('DB 조회 실패:', error);
+    res.send('DB 조회 실패: ' + error.message);
+  }
+});
