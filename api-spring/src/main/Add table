@@ -1,0 +1,81 @@
+// 테이블 생성
+async function initializeTables() {
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS users (
+        id TEXT PRIMARY KEY,
+        display_name TEXT,
+        email TEXT,
+        country TEXT,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS tracks (
+        id TEXT PRIMARY KEY,
+        name TEXT,
+        artist_name TEXT,
+        artist_id TEXT,
+        album_name TEXT,
+        album_id TEXT,
+        duration_ms INTEGER,
+        popularity INTEGER,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+
+    await client.query(`
+      CREATE INDEX IF NOT EXISTS idx_tracks_artist_name ON tracks(artist_name)
+    `);
+    await client.query(`
+      CREATE INDEX IF NOT EXISTS idx_tracks_created_at ON tracks(created_at DESC)
+    `);
+
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS audio_features (
+        track_id TEXT PRIMARY KEY,
+        tempo REAL,
+        energy REAL,
+        valence REAL,
+        danceability REAL,
+        acousticness REAL,
+        instrumentalness REAL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (track_id) REFERENCES tracks(id) ON DELETE CASCADE
+      )
+    `);
+
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS tags (
+        id SERIAL PRIMARY KEY,
+        track_id TEXT,
+        tag_type TEXT,
+        tag_value TEXT,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (track_id) REFERENCES tracks(id) ON DELETE CASCADE
+      )
+    `);
+
+    await client.query(`
+      CREATE INDEX IF NOT EXISTS idx_tags_track_id ON tags(track_id)
+    `);
+    await client.query(`
+      CREATE INDEX IF NOT EXISTS idx_tags_tag_type ON tags(tag_type)
+    `);
+
+    await client.query('COMMIT');
+    console.log('✅ PostgreSQL 테이블 생성 완료');
+
+  } catch (error) {
+    await client.query('ROLLBACK');
+    console.error('❌ 테이블 생성 실패:', error);
+  } finally {
+    client.release();
+  }
+}
+
+initializeTables();
