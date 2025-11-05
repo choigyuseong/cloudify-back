@@ -3,6 +3,7 @@ package org.example.apispring.auth.web;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import lombok.RequiredArgsConstructor;
+import org.example.apispring.auth.application.OAuthCredentialService;
 import org.example.apispring.global.security.jwt.CookieUtil;
 import org.example.apispring.global.security.jwt.JwtPrincipal;
 import org.example.apispring.global.security.jwt.JwtTokenProvider;
@@ -24,6 +25,7 @@ import java.util.UUID;
 public class AuthController {
     private final JwtTokenProvider jwt;
     private final CookieUtil cookie;
+    private final OAuthCredentialService credentialService;
 
     @Value("${jwt.access-token-expiration}")
     private long atExpMillis;
@@ -38,7 +40,6 @@ public class AuthController {
         var tc = jwt.decodeRefresh(rt); // typ=refresh, jti 존재, exp 검사 포함
         UUID uid = tc.userId();
 
-        // (선택) Redis 등으로 jti 재사용 방지 로직 추가 (ensureNotReused(tc.jti()))
 
         String newAt = jwt.createAccessToken(uid);
         String newRt = jwt.createRefreshToken(uid); // jti 갱신
@@ -51,7 +52,6 @@ public class AuthController {
 
     @PostMapping("/logout")
     public ResponseEntity<Void> logout(HttpServletResponse res) {
-        // (선택) 서버 측 RT jti 블랙리스트 처리
         cookie.clearAccess(res);
         cookie.clearRefresh(res);
         return ResponseEntity.noContent().build();
@@ -62,5 +62,12 @@ public class AuthController {
         if (auth == null) throw new InsufficientAuthenticationException("NO_AUTH");
         JwtPrincipal p = (JwtPrincipal) auth.getPrincipal();
         return Map.of("userId", p.userId());
+    }
+
+    @PostMapping("/disconnect")
+    public ResponseEntity<Void> disconnect(Authentication auth) {
+        var p = (JwtPrincipal) auth.getPrincipal(); // 로그인된 사용자 기준
+        credentialService.disconnect(p.userId());
+        return ResponseEntity.noContent().build();
     }
 }

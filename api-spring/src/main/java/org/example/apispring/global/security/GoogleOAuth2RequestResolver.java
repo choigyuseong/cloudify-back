@@ -15,20 +15,20 @@ import java.util.Map;
 @RequiredArgsConstructor
 public class GoogleOAuth2RequestResolver implements OAuth2AuthorizationRequestResolver {
 
-    private final ClientRegistrationRepository clientRegistrationRepository;
+    private final ClientRegistrationRepository crRepo;
 
     @Override
-    public OAuth2AuthorizationRequest resolve(HttpServletRequest request) {
-        return customize(delegate(request).resolve(request));
+    public OAuth2AuthorizationRequest resolve(HttpServletRequest req) {
+        return customize(delegate(req).resolve(req));
     }
 
     @Override
-    public OAuth2AuthorizationRequest resolve(HttpServletRequest request, String clientRegistrationId) {
-        return customize(delegate(request).resolve(request, clientRegistrationId));
+    public OAuth2AuthorizationRequest resolve(HttpServletRequest req, String clientRegistrationId) {
+        return customize(delegate(req).resolve(req, clientRegistrationId));
     }
 
     private DefaultOAuth2AuthorizationRequestResolver delegate(HttpServletRequest request) {
-        return new DefaultOAuth2AuthorizationRequestResolver(clientRegistrationRepository, "/oauth2/authorization");
+        return new DefaultOAuth2AuthorizationRequestResolver(crRepo, "/oauth2/authorization");
     }
 
     private OAuth2AuthorizationRequest customize(OAuth2AuthorizationRequest req) {
@@ -36,7 +36,7 @@ public class GoogleOAuth2RequestResolver implements OAuth2AuthorizationRequestRe
         Map<String, Object> add = new HashMap<>(req.getAdditionalParameters());
         add.put("access_type", "offline");
         add.put("include_granted_scopes", "true");
-        // TODO 예외 처리: 필요 시 최초 진입에서만 prompt=consent 강제하는 로직 분기
+        add.put("prompt", "consent");
 
         return OAuth2AuthorizationRequest.from(req)
                 .additionalParameters(add)
