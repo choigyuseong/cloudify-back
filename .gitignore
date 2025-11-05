@@ -60,13 +60,7 @@ pnpm-debug.log*
 # -----------------------------
 # Env / secrets
 # -----------------------------
-.env
-.env.*
-**/.env
-**/.env.*
-!**/.env.example
 deploy/.env
-deploy/.env.*
 
 # Spring local overrides (do NOT ignore application.yml/properties)
 api-spring/src/main/resources/application-local.yml
@@ -88,7 +82,3 @@ dist/
 nbdist/
 nbproject/private/
 
-# -----------------------------
-# Docker / Compose
-# -----------------------------
-docker-compose.override.yml
