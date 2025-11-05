@@ -4,19 +4,14 @@ import io.jsonwebtoken.Claims;
 import io.jsonwebtoken.Jws;
 import io.jsonwebtoken.Jwts;
 import io.jsonwebtoken.MalformedJwtException;
-import io.jsonwebtoken.ExpiredJwtException;
-import io.jsonwebtoken.security.Keys;
-import io.jsonwebtoken.security.SecurityException;
-import jakarta.annotation.PostConstruct;
+import io.jsonwebtoken.JwtException;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
 
 import javax.crypto.SecretKey;
-import java.nio.charset.StandardCharsets;
 import java.time.Clock;
 import java.time.Instant;
 import java.util.Date;
-import java.util.Objects;
 import java.util.UUID;
 
 @Component
@@ -24,30 +19,18 @@ import java.util.UUID;
 public class JwtTokenProvider {
 
     public static final String TOKEN_TYPE = "type";
-    public static final String TOKEN_TYPE_ACCESS = "access";
+    public static final String TOKEN_TYPE_ACCESS  = "access";
     public static final String TOKEN_TYPE_REFRESH = "refresh";
 
-    private final JwtProperties props;
+    private final JwtProperties props;   // record: issuer(), accessTokenExpiration(), ...
     private final Clock clock;
-    private SecretKey hmacKey;
-
-    public record TokenClaims(UUID userId, String tokenType, String jti, Instant exp) {}
-
-    @PostConstruct
-    public void init() {
-        byte[] keyBytes = Objects.requireNonNull(props.getSecret(), "jwt.secret must not be null")
-                .getBytes(StandardCharsets.UTF_8);
-        if (keyBytes.length < 32) {
-            throw new IllegalStateException("jwt.secret must be >= 32 bytes");
-        }
-        this.hmacKey = Keys.hmacShaKeyFor(keyBytes);
-    }
+    private final SecretKey hmacKey;     // JwtConfig에서 Bean으로 생성/주입
 
     public String createAccessToken(UUID userId) {
         Instant now = Instant.now(clock);
-        Instant exp = now.plusMillis(props.getAccessTokenExpiration());
+        Instant exp = now.plusMillis(props.accessTokenExpiration());
         return Jwts.builder()
-                .issuer(props.getIssuer())
+                .issuer(props.issuer())
                 .subject(userId.toString())
                 .claim(TOKEN_TYPE, TOKEN_TYPE_ACCESS)
                 .issuedAt(Date.from(now))
@@ -58,9 +41,9 @@ public class JwtTokenProvider {
 
     public String createRefreshToken(UUID userId) {
         Instant now = Instant.now(clock);
-        Instant exp = now.plusMillis(props.getRefreshTokenExpiration());
+        Instant exp = now.plusMillis(props.refreshTokenExpiration());
         return Jwts.builder()
-                .issuer(props.getIssuer())
+                .issuer(props.issuer())
                 .subject(userId.toString())
                 .claim(TOKEN_TYPE, TOKEN_TYPE_REFRESH)
                 .id(UUID.randomUUID().toString()) // jti
@@ -72,20 +55,20 @@ public class JwtTokenProvider {
 
     public TokenClaims decode(String token) {
         var parser = Jwts.parser()
-                .requireIssuer(props.getIssuer())
-                .clockSkewSeconds(props.getAllowedClockSkewSeconds())
+                .requireIssuer(props.issuer())
+                .clockSkewSeconds(props.allowedClockSkewSeconds())
                 .verifyWith(hmacKey)
                 .build();
 
         Jws<Claims> jws = parser.parseSignedClaims(token);
         Claims c = jws.getPayload();
 
-        UUID userId = UUID.fromString(c.getSubject());
-        String tokenType = c.get(TOKEN_TYPE, String.class);
-        String jti = c.getId();
-        Instant exp = c.getExpiration().toInstant();
-
-        return new TokenClaims(userId, tokenType, jti, exp);
+        return new TokenClaims(
+                UUID.fromString(c.getSubject()),
+                c.get(TOKEN_TYPE, String.class),
+                c.getId(),                                // AT면 null일 수 있음
+                c.getExpiration().toInstant()
+        );
     }
 
     public TokenClaims decodeAccess(String token) {
@@ -111,7 +94,7 @@ public class JwtTokenProvider {
         try {
             decode(token);
             return true;
-        } catch (ExpiredJwtException | SecurityException | MalformedJwtException | IllegalArgumentException e) {
+        } catch (JwtException | IllegalArgumentException e) {
             return false;
         }
     }

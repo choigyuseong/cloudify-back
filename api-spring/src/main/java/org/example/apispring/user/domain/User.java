@@ -6,6 +6,7 @@ import org.hibernate.annotations.JdbcTypeCode;
 import org.hibernate.annotations.UuidGenerator;
 import org.hibernate.type.SqlTypes;
 
+import java.util.Objects;
 import java.util.UUID;
 
 @Entity
@@ -45,9 +46,22 @@ public class User {
         this.pictureUrl = pictureUrl;
     }
 
-    public void updateProfile(String email, String name, String pictureUrl) {
-        this.email = email;
-        this.name = name;
-        this.pictureUrl = pictureUrl;
+    public boolean updateProfileIfChanged(String email, String name, String pictureUrl) {
+        boolean changed = false;
+
+        if (email != null && !Objects.equals(this.email, email)) {
+            this.email = email;
+            changed = true;
+        }
+        if (name != null && !Objects.equals(this.name, name)) {
+            this.name = name;
+            changed = true;
+        }
+        if (pictureUrl != null && !Objects.equals(this.pictureUrl, pictureUrl)) {
+            this.pictureUrl = pictureUrl;
+            changed = true;
+        }
+        return changed;
     }
+
 }

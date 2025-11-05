@@ -1,106 +1,88 @@
 package org.example.apispring.global.security;
 
-import jakarta.servlet.http.Cookie;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import lombok.RequiredArgsConstructor;
 import org.example.apispring.auth.application.OAuthCredentialService;
-import org.example.apispring.global.security.jwt.JwtProperties;
+import org.example.apispring.global.security.jwt.CookieUtil;
 import org.example.apispring.global.security.jwt.JwtTokenProvider;
 import org.example.apispring.user.application.UserService;
-import org.springframework.data.redis.core.StringRedisTemplate;
-import org.springframework.http.ResponseCookie;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.oauth2.client.OAuth2AuthorizedClient;
 import org.springframework.security.oauth2.client.OAuth2AuthorizedClientService;
 import org.springframework.security.oauth2.client.authentication.OAuth2AuthenticationToken;
-import org.springframework.security.oauth2.core.oidc.user.OidcUser;
+import org.springframework.security.oauth2.core.user.OAuth2User;
 import org.springframework.security.web.authentication.AuthenticationSuccessHandler;
 import org.springframework.stereotype.Component;
 
 import java.io.IOException;
-import java.time.Duration;
-import java.time.Instant;
-import java.util.concurrent.TimeUnit;
 
 @Component
 @RequiredArgsConstructor
 public class OAuth2LoginSuccessHandler implements AuthenticationSuccessHandler {
 
-    private final OAuth2AuthorizedClientService authorizedClientService;
     private final UserService userService;
     private final OAuthCredentialService credentialService;
+    private final OAuth2AuthorizedClientService clientService;
     private final JwtTokenProvider jwt;
-    private final JwtProperties jwtProperties;
-    private final StringRedisTemplate redis;
+    private final CookieUtil cookies;
 
-    private static final String AT = "AT";
-    private static final String RT = "RT";
+    @Value("${jwt.access-token-expiration}")
+    private long atExpMillis;
+    @Value("${jwt.refresh-token-expiration}")
+    private long rtExpMillis;
+    @Value("${app.front.redirect-url}")
+    private String frontRedirectUrl;
 
     @Override
-    public void onAuthenticationSuccess(HttpServletRequest request, HttpServletResponse response, Authentication authentication) {
-        OAuth2AuthenticationToken token = (OAuth2AuthenticationToken) authentication;
-        OidcUser oidc = (OidcUser) token.getPrincipal();
+    public void onAuthenticationSuccess(HttpServletRequest req, HttpServletResponse res, Authentication auth)
+            throws IOException {
+        // 구글로부터 프로필 추출해서 유저 upsert
+        var oUser = (OAuth2User) auth.getPrincipal();
+        String sub = oUser.getAttribute("sub");
+        String email = oUser.getAttribute("email");
+        String name = oUser.getAttribute("name");
+        String pictureUrl = oUser.getAttribute("picture");
+        var user = userService.upsertByGoogle(sub, email, name, pictureUrl);
 
-        String sub = oidc.getSubject();
-        String email = (String) oidc.getClaims().get("email");
-        String name = (String) oidc.getClaims().get("name");
-        String picture = (String) oidc.getClaims().get("picture");
-        // TODO: 필수 클레임 검증 실패 시 비즈니스 예외 매핑
+        // 누가 어떤 클라이언트로 인증했는가를 담은 인증 토큰 , 이걸 통해서 만들어지는 client 에 AT / RT 가 담김
+        var oauthToken = (OAuth2AuthenticationToken) auth;
 
-        var user = userService.upsertBySub(sub, email, name, picture);
+        String regId = oauthToken.getAuthorizedClientRegistrationId();
+        String principalName = oauthToken.getName();
+        OAuth2AuthorizedClient client = clientService.loadAuthorizedClient(regId, principalName);
 
-        OAuth2AuthorizedClient client =
-                authorizedClientService.loadAuthorizedClient(token.getAuthorizedClientRegistrationId(), token.getName());
-        // TODO: client null/AT null 방어
+        if (client != null) {
+            var gAt = client.getAccessToken();
+            var gRt = client.getRefreshToken();
+            var scopes = gAt.getScopes();
+            var exp = gAt.getExpiresAt();
 
-        var at = client.getAccessToken();
-        var rt = client.getRefreshToken(); // 최초 동의가 아니면 null일 수 있음(정상)
-        String scopes = String.join(" ", at.getScopes());
-        Instant atExp = at.getExpiresAt();
-
-        credentialService.store(
-                user.getId(),
-                at.getTokenValue(),
-                rt != null ? rt.getTokenValue() : null,
-                atExp,
-                scopes
-        );
-
-        // 우리 서비스 JWT 발급 + 쿠키 세팅
-        String accessJwt = jwt.createAccessToken(user.getId());
-        String refreshJwt = jwt.createRefreshToken(user.getId());
-
-        // Redis에 현재 RT jti 보관(단일 세션 가정)
-        var refreshClaims = jwt.decodeRefresh(refreshJwt);
-        String key = "rtj:" + user.getId();
-        long ttlSec = (refreshClaims.exp().getEpochSecond() - Instant.now().getEpochSecond());
-        redis.opsForValue().set(key, refreshClaims.jti(), ttlSec, TimeUnit.SECONDS);
-
-        setCookie(response, AT, accessJwt, (int)(jwtProperties.getAccessTokenExpiration()/1000));
-        setCookie(response, RT, refreshJwt, (int)(jwtProperties.getRefreshTokenExpiration()/1000));
-
-        try {
-            response.sendRedirect("/"); // TODO: 프론트 첫 화면 경로에 맞게 조정
-        } catch (IOException e) {
-            throw new RuntimeException(e); // TODO: 비즈니스 예외 변환
+            try {
+                credentialService.saveOrUpdate(
+                        user.getId(),
+                        gAt.getTokenValue(),
+                        gRt != null
+                                ? gRt.getTokenValue()
+                                : null,
+                        exp,
+                        scopes
+                );
+            } catch (IllegalStateException ex) {
+                String consentUrl = req.getContextPath()
+                        + "/oauth2/authorization/google?prompt=consent&access_type=offline";
+                res.sendRedirect(consentUrl);
+                return;
+            }
         }
-    }
 
-    private void setCookie(HttpServletResponse res, String name, String value, int maxAgeSec) {
-        Cookie c = new Cookie(name, value);
-        c.setHttpOnly(true);
-        c.setSecure(true); // HTTPS 전제
-        c.setPath("/");
-        c.setMaxAge(maxAgeSec);
-        // SameSite=None; Spring Cookie에는 직접 속성 없음 → 헤더로 추가하는 편의 메서드 사용하거나 ResponseCookie 사용
-        res.setHeader("Set-Cookie",
-                ResponseCookie.from(name, value)
-                        .httpOnly(true)
-                        .secure(true)
-                        .sameSite("None")
-                        .path("/")
-                        .maxAge(Duration.ofSeconds(maxAgeSec))
-                        .build().toString());
+        String at = jwt.createAccessToken(user.getId());
+        String rt = jwt.createRefreshToken(user.getId());
+
+        cookies.writeAccess(res, at, atExpMillis / 1000);
+        cookies.writeRefresh(res, rt, rtExpMillis / 1000);
+
+        res.sendRedirect(frontRedirectUrl);
     }
 }

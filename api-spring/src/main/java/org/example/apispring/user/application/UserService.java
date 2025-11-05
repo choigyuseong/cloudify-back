@@ -6,7 +6,7 @@ import org.example.apispring.user.domain.User;
 import org.example.apispring.user.domain.UserRepository;
 import org.springframework.stereotype.Service;
 
-import java.util.Optional;
+import java.util.Objects;
 
 @Service
 @RequiredArgsConstructor
@@ -15,20 +15,21 @@ public class UserService {
     private final UserRepository userRepository;
 
     @Transactional
-    public User upsertBySub(String sub, String email, String name, String pictureUrl) {
-        // TODO 예외 처리: sub null/blank → BusinessException(OAUTH_CLAIM_MISSING)
+    public User upsertByGoogle(String sub, String email, String name, String pictureUrl) {
+        Objects.requireNonNull(sub, "google sub must not be null");
+
         return userRepository.findBySub(sub)
                 .map(u -> {
-                    u.updateProfile(email, name, pictureUrl);
+                    boolean changed = u.updateProfileIfChanged(email, name, pictureUrl);
                     return u;
                 })
                 .orElseGet(() -> userRepository.save(
-                        User.builder().sub(sub).email(email).name(name).pictureUrl(pictureUrl).build()
+                        User.builder()
+                                .sub(sub)
+                                .email(email)
+                                .name(name)
+                                .pictureUrl(pictureUrl)
+                                .build()
                 ));
     }
-
-    public Optional<User> findBySub(String sub) {
-        return userRepository.findBySub(sub);
-    }
-
 }
