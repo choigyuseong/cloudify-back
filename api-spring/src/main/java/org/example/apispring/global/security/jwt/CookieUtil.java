@@ -13,9 +13,14 @@ public class CookieUtil {
     public static final String ACCESS_COOKIE = "AT";
     public static final String REFRESH_COOKIE = "RT";
 
-    @Value("${cookie.secure:true}")     private boolean secure;
-    @Value("${cookie.same-site:None}")  private String sameSite; // None/Lax/Strict
-    @Value("${cookie.domain:}")         private String domain;   // 필요 시만 지정(빈 문자열이면 미지정)
+    @Value("${security.cookie.secure:true}")
+    private boolean secure;
+
+    @Value("${security.cookie.samesite:None}")
+    private String sameSite;
+
+    @Value("${security.cookie.domain:}")
+    private String domain;
 
     private String build(String name, String val, int maxAge, String path) {
         StringBuilder sb = new StringBuilder()
@@ -43,6 +48,21 @@ public class CookieUtil {
 
     public void clearRefresh(HttpServletResponse res) {
         res.addHeader("Set-Cookie", build(REFRESH_COOKIE, "", 0, "/api/auth/refresh"));
+    }
+
+    private Optional<String> readCookie(HttpServletRequest req, String name) {
+        Cookie[] cs = req.getCookies();
+        if (cs == null) return Optional.empty();
+        for (Cookie c : cs) {
+            if (name.equals(c.getName())) {
+                return Optional.ofNullable(c.getValue());
+            }
+        }
+        return Optional.empty();
+    }
+
+    public Optional<String> readAccess(HttpServletRequest req) {
+        return readCookie(req, ACCESS_COOKIE);
     }
 
     public Optional<String> readRefresh(HttpServletRequest req) {
