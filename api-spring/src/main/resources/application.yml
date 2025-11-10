@@ -2,6 +2,9 @@ server:
   port: ${PORT:8080}
 
 spring:
+  config:
+    import:
+      ""
   datasource:
     url: ${DB_URL}
     username: ${DB_USER}
@@ -10,7 +13,7 @@ spring:
   jpa:
     open-in-view: false
     hibernate:
-      ddl-auto: none
+      ddl-auto: update
     properties:
       hibernate:
         dialect: org.hibernate.dialect.PostgreSQLDialect
@@ -18,6 +21,44 @@ spring:
     redis:
       host: ${REDIS_HOST:redis}
       port: ${REDIS_PORT:6379}
+
+  security:
+    oauth2:
+      client:
+        registration:
+          google:
+            client-id: ${GOOGLE_CLIENT_ID}
+            client-secret: ${GOOGLE_CLIENT_SECRET}
+            scope:
+              - openid
+              - email
+              - profile
+              - https://www.googleapis.com/auth/youtube
+            redirect-uri: "https://localhost/login/oauth2/code/google"
+        provider:
+          google:
+            issuer-uri: https://accounts.google.com
+
+security:
+  cookie:
+    secure: ${COOKIE_SECURE}
+    samesite: ${COOKIE_SAMESITE}
+
+cors:
+  allowed-origins: ${CORS_ALLOWED_ORIGINS}
+  allowed-headers: "Content-Type,Authorization,X-CSRF-Token"
+  allowed-methods: "GET,POST,PUT,DELETE,PATCH,OPTIONS"
+  allow-credentials: true
+
+jwt:
+  secret: ${JWT_SECRET}
+  issuer: ${JWT_ISSUER}
+  access-token-expiration: ${JWT_ACCESS_TOKEN_EXPIRATION}
+  refresh-token-expiration: ${JWT_REFRESH_TOKEN_EXPIRATION}
+  allowed-clock-skew-seconds: ${JWT_ALLOWED_CLOCK_SKEW_SECONDS}
+
+crypto:
+  master-key-base64: ${CRYPTO_MASTER_KEY}
 
 management:
   endpoints:
@@ -28,3 +69,23 @@ management:
     health:
       probes:
         enabled: true
+
+app:
+  front:
+    redirect-url: /swagger-ui/index.html
+
+cloudify:
+  data:
+    songs: data/songs.csv
+    constraints: data/constraints.csv
+  youtube:
+    apiKey: ${YOUTUBE_API_KEY:}         # 유튜브 Data API v3 검색에 사용할 키 (환경변수로 주입)
+  llm:
+    baseUrl: ${LLM_BASE_URL:https://api.your-llm.example}  # LLM HTTP 엔드포인트 베이스 URL
+    path: /parse                                           # POST로 호출할 경로
+    apiKey: ${LLM_API_KEY:}                                # 필요 시
+    timeoutMs: 2000                                        # 2초 타임아웃
+logging:
+  level:
+    org.example.apispring.youtube.web.YouTubeService: DEBUG
+    org.example.apispring.reco.service.RecommendationService: INFO

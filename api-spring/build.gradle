@@ -19,45 +19,120 @@ repositories {
 }
 
 dependencies {
-    // --- Web API (REST Controller, JSON 직렬화 등) ---
+    // ─────────────────────────────────────────────────────────────────────────
+    // Core Web & Security
+    // - 기본 REST API (Spring MVC + Tomcat)
+    // - Spring Security 필터 체인 / 인증·인가
+    // - (선택) Thymeleaf: 간단한 템플릿 뷰/디버그 페이지
+    // ─────────────────────────────────────────────────────────────────────────
     implementation 'org.springframework.boot:spring-boot-starter-web'
+    implementation 'org.springframework.boot:spring-boot-starter-security'
+    implementation 'org.springframework.boot:spring-boot-starter-thymeleaf'
 
-    // --- Bean Validation(JSR-380): @Valid, @NotNull 등 ---
+    // ─────────────────────────────────────────────────────────────────────────
+    // OAuth2 / OpenID Connect (Google 로그인 & 토큰)
+    // - oauth2-client: Authorization Code(+PKCE) 플로우 클라이언트
+    // - oauth2-jose: ID 토큰(JWT) 파싱/검증을 위한 JOSE/JWT 지원
+    // ─────────────────────────────────────────────────────────────────────────
+    implementation 'org.springframework.boot:spring-boot-starter-oauth2-client'
+    implementation 'org.springframework.security:spring-security-oauth2-jose'
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // Validation
+    // - Bean Validation(JSR-380): @Valid, @NotNull 등
+    // ─────────────────────────────────────────────────────────────────────────
     implementation 'org.springframework.boot:spring-boot-starter-validation'
 
-    // --- JPA/Hibernate: 엔티티 매핑 + 트랜잭션 ---
+    // ─────────────────────────────────────────────────────────────────────────
+    // Persistence / Database
+    // - Spring Data JPA + Hibernate
+    // - PostgreSQL JDBC 드라이버(런타임 필요)
+    // ─────────────────────────────────────────────────────────────────────────
     implementation 'org.springframework.boot:spring-boot-starter-data-jpa'
+    runtimeOnly   'org.postgresql:postgresql'   // 드라이버는 runtimeOnly로 충분
 
-    // --- PostgreSQL JDBC 드라이버 (런타임에만 필요) ---
-    runtimeOnly 'org.postgresql:postgresql'
-
-    // --- OAuth2 클라이언트: Google 로그인(Code+PKCE) ---
-    implementation 'org.springframework.boot:spring-boot-starter-oauth2-client'
-
-    // --- Actuator: /actuator/health 등 헬스/메트릭 ---
+    // ─────────────────────────────────────────────────────────────────────────
+    // Observability / Actuator
+    // - /actuator/health, /actuator/info 등 운영 관측 엔드포인트
+    // ─────────────────────────────────────────────────────────────────────────
     implementation 'org.springframework.boot:spring-boot-starter-actuator'
 
-    // --- (선택) Redis: 세션/캐시 사용 시 활성화 ---
-    // implementation 'org.springframework.boot:spring-boot-starter-data-redis'
+    // ─────────────────────────────────────────────────────────────────────────
+    // Redis
+    // - 캐시/토큰/세션 등 키-값 스토리지 연동
+    // ─────────────────────────────────────────────────────────────────────────
+    implementation 'org.springframework.boot:spring-boot-starter-data-redis'
 
-    // --- (선택) DB 마이그레이션: Flyway 사용 시 ---
-    // implementation 'org.flywaydb:flyway-core'
-    // (Postgres 확장 기능이 필요하면)
-    // implementation 'org.flywaydb:flyway-database-postgresql'
+    // ─────────────────────────────────────────────────────────────────────────
+    // API 문서 (Springdoc OpenAPI + Swagger UI)
+    // - /swagger-ui, /v3/api-docs 제공
+    // ─────────────────────────────────────────────────────────────────────────
+    implementation 'org.springdoc:springdoc-openapi-starter-webmvc-ui:2.8.13'
 
-    // --- (선택) Lombok: 보일러플레이트 제거 ---
-    compileOnly 'org.projectlombok:lombok'
+    // ─────────────────────────────────────────────────────────────────────────
+    // (선택) DevTools (개발 편의)
+    // - 자동 리스타트/라이브 리로드 (운영 배포 제외)
+    // ─────────────────────────────────────────────────────────────────────────
+    // developmentOnly 'org.springframework.boot:spring-boot-devtools'
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // Lombok (선택)
+    // - 보일러플레이트 제거 (컴파일 시에만 필요)
+    // ─────────────────────────────────────────────────────────────────────────
+    compileOnly         'org.projectlombok:lombok'
     annotationProcessor 'org.projectlombok:lombok'
-    testCompileOnly 'org.projectlombok:lombok'
+    testCompileOnly     'org.projectlombok:lombok'
     testAnnotationProcessor 'org.projectlombok:lombok'
 
-    // --- (선택) 설정 바인딩 @ConfigurationProperties 힌트 생성 ---
-    annotationProcessor 'org.springframework.boot:spring-boot-configuration-processor'
+    // ─────────────────────────────────────────────────────────────────────────
+    // @ConfigurationProperties 바인딩 메타 생성(선택)
+    // - IDE에서 프로퍼티 자동완성/검증 도움
+    // ─────────────────────────────────────────────────────────────────────────
+    annotationProcessor "org.springframework.boot:spring-boot-configuration-processor"
 
-    // --- 테스트 ---
+    // ─────────────────────────────────────────────────────────────────────────
+    // JSON / 유틸
+    // - Gson: 가벼운 JSON 직렬화/역직렬화
+    // - org.json: JSONObject 등 단순 조작 유틸(YouTubeService에서 사용)
+    // ─────────────────────────────────────────────────────────────────────────
+    implementation 'com.google.code.gson:gson:2.10.1'
+    implementation 'org.json:json:20240303'
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // CSV
+    // - 데이터 시딩/로컬 파일 로딩
+    // ─────────────────────────────────────────────────────────────────────────
+    implementation 'com.opencsv:opencsv:5.9'
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // Cache
+    // - @EnableCaching, CacheManager 등 (Redis와 함께 사용 권장)
+    // ─────────────────────────────────────────────────────────────────────────
+    implementation 'org.springframework.boot:spring-boot-starter-cache'
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // Reactive(WebClient 전용으로 사용)
+    // - WebFlux 전체가 아니라도 WebClient 때문에 의존 추가 가능
+    // - MVC(starter-web)와 공존 가능. 서버는 여전히 Tomcat(기본) 사용
+    // ─────────────────────────────────────────────────────────────────────────
+    implementation 'org.springframework.boot:spring-boot-starter-webflux'   // LLM 호출용 WebClient 등
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // JWT (JJWT)
+    // - 액세스/리프레시 토큰 발급/검증
+    // ─────────────────────────────────────────────────────────────────────────
+    implementation 'io.jsonwebtoken:jjwt-api:0.13.0'
+    runtimeOnly   'io.jsonwebtoken:jjwt-impl:0.13.0'
+    runtimeOnly   'io.jsonwebtoken:jjwt-jackson:0.13.0' // Jackson 기반 직렬화
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // Test
+    // - Spring Boot 기본 테스트 + Security 테스트 유틸
+    // - (선택) Testcontainers로 Postgres 통합 테스트
+    // ─────────────────────────────────────────────────────────────────────────
     testImplementation 'org.springframework.boot:spring-boot-starter-test'
-    testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
-    // (선택) Testcontainers로 Postgres 통합테스트
+    testImplementation 'org.springframework.security:spring-security-test'
+    testRuntimeOnly   'org.junit.platform:junit-platform-launcher'
     // testImplementation 'org.testcontainers:junit-jupiter'
     // testImplementation 'org.testcontainers:postgresql'
 }
