@@ -20,12 +20,6 @@ public class GoogleConsentStrategy {
     private final OAuthCredentialsRepository repo;
 
     public boolean needPrompt(HttpServletRequest req, Set<String> requiredScopes) {
-        // 0) 개발/디버그용 강제 스위치
-        //    /oauth2/authorization/google?force_consent=1
-        if ("1".equals(req.getParameter("force_consent"))) {
-            return true;
-        }
-
         // 1) 우리 AT 쿠키로 userId 복원 (없으면 userId = null)
         UUID userId = resolveUserIdFromCookie(req);
 
