@@ -2,25 +2,34 @@ server:
   port: ${PORT:8080}
 
 spring:
-  config:
-    import:
-      ""
+  jackson:
+    deserialization:
+      FAIL_ON_UNKNOWN_PROPERTIES: false
+
   datasource:
-    url: ${DB_URL}
-    username: ${DB_USER}
-    password: ${DB_PASSWORD}
+    url: jdbc:postgresql://localhost:5432/cloudify_db
+    username: cloudify_user
+    password: 1234
     driver-class-name: org.postgresql.Driver
+
   jpa:
     open-in-view: false
     hibernate:
-      ddl-auto: update
+      ddl-auto: none
     properties:
       hibernate:
-        dialect: org.hibernate.dialect.PostgreSQLDialect
-  data:
-    redis:
-      host: ${REDIS_HOST:redis}
-      port: ${REDIS_PORT:6379}
+        format_sql: true
+    show-sql: true
+
+  sql:
+    init:
+      mode: always
+
+      #data:
+      #redis:
+      # ⚡ Docker 안 쓰므로 localhost로 고정
+      #host: localhost
+      #port: 6379
 
   security:
     oauth2:
@@ -34,58 +43,48 @@ spring:
               - email
               - profile
               - https://www.googleapis.com/auth/youtube
-            redirect-uri: "https://localhost/login/oauth2/code/google"
         provider:
           google:
             issuer-uri: https://accounts.google.com
 
-security:
-  cookie:
-    secure: ${COOKIE_SECURE}
-    samesite: ${COOKIE_SAMESITE}
-
-cors:
-  allowed-origins: ${CORS_ALLOWED_ORIGINS}
-  allowed-headers: "Content-Type,Authorization,X-CSRF-Token"
-  allowed-methods: "GET,POST,PUT,DELETE,PATCH,OPTIONS"
-  allow-credentials: true
-
 jwt:
-  secret: ${JWT_SECRET}
-  issuer: ${JWT_ISSUER}
-  access-token-expiration: ${JWT_ACCESS_TOKEN_EXPIRATION}
-  refresh-token-expiration: ${JWT_REFRESH_TOKEN_EXPIRATION}
-  allowed-clock-skew-seconds: ${JWT_ALLOWED_CLOCK_SKEW_SECONDS}
+  secret: ${JWT_SECRET:cloudify-test-key-0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ}
+  issuer: ${JWT_ISSUER:cloudify-auth-server}
+  access-token-expiration: ${JWT_ACCESS_TOKEN_EXPIRATION:3600000}
+  refresh-token-expiration: ${JWT_REFRESH_TOKEN_EXPIRATION:1209600000}
+  allowed-clock-skew-seconds: ${JWT_ALLOWED_CLOCK_SKEW_SECONDS:60}
 
+# ✅ AES-256 master key — 정확히 32바이트
 crypto:
-  master-key-base64: ${CRYPTO_MASTER_KEY}
+  masterKeyBase64: Q2xvdWRpZnlUcnVlMzJCeXRlU2VjdXJlS2V5MTIzNDU2
 
 management:
   endpoints:
     web:
       exposure:
-        include: "health,info"
+        include: health,info
   endpoint:
     health:
       probes:
         enabled: true
-
-app:
-  front:
-    redirect-url: /swagger-ui/index.html
 
 cloudify:
   data:
     songs: data/songs.csv
     constraints: data/constraints.csv
   youtube:
-    apiKey: ${YOUTUBE_API_KEY:}         # 유튜브 Data API v3 검색에 사용할 키 (환경변수로 주입)
+    apiKey: ${YOUTUBE_API_KEY:AIzaSyCfwPWx_9qmUwAu0IqmSFIQ8WZJ_TzwTsw}
   llm:
-    baseUrl: ${LLM_BASE_URL:https://api.your-llm.example}  # LLM HTTP 엔드포인트 베이스 URL
-    path: /parse                                           # POST로 호출할 경로
-    apiKey: ${LLM_API_KEY:}                                # 필요 시
-    timeoutMs: 2000                                        # 2초 타임아웃
+    baseUrl: ${LLM_BASE_URL:https://api.your-llm.example}
+    path: /parse
+    apiKey: ${LLM_API_KEY:}
+    timeoutMs: 2000
+
 logging:
   level:
     org.example.apispring.youtube.web.YouTubeService: DEBUG
     org.example.apispring.reco.service.RecommendationService: INFO
+
+genius:
+  api:
+    token: ${GENIUS_API_TOKEN:CzBTTjI3SfZE35PtqbjMg6P8f_6GitXeHJf2KZ2W171hukwu5gTShhAqxjZxNje4}

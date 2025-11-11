@@ -88,11 +88,11 @@ public class CsvLoader {
             var c = consMap.get(key(s.title, s.artist));
             if (c == null) continue;
             var tc = new TrackConstraints(
-                    MOOD.valueOf(c.mood.toUpperCase()),
-                    GENRE.valueOf(c.genre.toUpperCase()),
-                    ACTIVITY.valueOf(c.activity.toUpperCase()),
-                    BRANCH.valueOf(c.branch.toUpperCase()),
-                    TEMPO.valueOf(c.tempo.toUpperCase())
+                    MOOD.valueOf(c.mood.toLowerCase()),       // ✅ 변경
+                    GENRE.valueOf(c.genre.toLowerCase()),     // ✅ 변경
+                    ACTIVITY.valueOf(c.activity.toLowerCase()), // ✅ 변경
+                    BRANCH.valueOf(c.branch.toLowerCase()),   // ✅ 변경
+                    TEMPO.valueOf(c.tempo.toLowerCase())      // ✅ 변경
             );
             out.add(new SongRecord(s.title, s.artist, tc));
         }

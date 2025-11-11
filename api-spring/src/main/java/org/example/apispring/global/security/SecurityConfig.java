@@ -8,7 +8,6 @@ import org.springframework.security.config.Customizer;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.http.SessionCreationPolicy;
 import org.springframework.security.web.SecurityFilterChain;
-import org.springframework.security.web.authentication.LoginUrlAuthenticationEntryPoint;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
 
 @Configuration
@@ -27,32 +26,21 @@ public class SecurityConfig {
         http
                 .csrf(csrf -> csrf.disable())
                 .cors(Customizer.withDefaults())
-                .sessionManagement(sm -> sm.sessionCreationPolicy(SessionCreationPolicy.IF_REQUIRED))
+                .sessionManagement(sm -> sm.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
+                .exceptionHandling(ex -> ex
+                        .authenticationEntryPoint(entryPoint)
+                        .accessDeniedHandler(accessDeniedHandler)
+                )
                 .authorizeHttpRequests(auth -> auth
                         .requestMatchers(
-                                "/",
-                                "/error",
-                                "/actuator/health",
-                                "/v3/api-docs/**",
-                                "/swagger-ui/**", "/swagger-ui.html",
+                                "/", "/actuator/health", "/error",
+                                "/v3/api-docs/**", "/swagger-ui/**", "/swagger-ui.html",
                                 "/oauth2/**", "/login/oauth2/**",
-                                "/api/auth/refresh"
+                                "/api/auth/refresh",
+                                // ✅ Swagger 테스트용 임시 허용 경로
+                                "/api/**"
                         ).permitAll()
-                        .anyRequest().authenticated()
-                )
-                .exceptionHandling(ex -> ex
-                        .authenticationEntryPoint((req, res, e) -> {
-                            String uri = req.getRequestURI();
-                            if (uri.startsWith("/api/")) {
-                                // API → 401 JSON
-                                entryPoint.commence(req, res, e);
-                            } else {
-                                // 웹 라우트 → 구글 인가로
-                                new LoginUrlAuthenticationEntryPoint("/oauth2/authorization/google")
-                                        .commence(req, res, e);
-                            }
-                        })
-                        .accessDeniedHandler(accessDeniedHandler)
+                        .anyRequest().permitAll()
                 )
                 .oauth2Login(oauth -> oauth
                         .authorizationEndpoint(ep -> ep.authorizationRequestResolver(googleOAuth2RequestResolver))
@@ -60,6 +48,7 @@ public class SecurityConfig {
                         .failureHandler(oAuth2LoginFailureHandler)
                 );
 
+        // ⚠️ JWT 필터는 유지하지만, 인증 검사는 사실상 통과됨
         http.addFilterBefore(jwtAuthFilter, UsernamePasswordAuthenticationFilter.class);
         return http.build();
     }
