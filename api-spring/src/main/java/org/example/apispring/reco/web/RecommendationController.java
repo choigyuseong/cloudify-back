@@ -1,6 +1,7 @@
 package org.example.apispring.reco.web;
 
 import org.example.apispring.reco.dto.CanonicalTagQuery;
+import org.example.apispring.reco.dto.CanonicalTagQuerySimple; // ✅ 새로 추가
 import org.example.apispring.reco.dto.SongResponse;
 import org.example.apispring.reco.service.RecommendationService;
 import org.example.apispring.reco.service.youtube.YouTubeService;
@@ -33,6 +34,7 @@ public class RecommendationController {
      * 🎯 POST /api/recommend
      * 입력된 CanonicalTagQuery(JSON) 기반으로 상위 30곡 추천
      * - 기능 명세서 기준: 항상 30곡 반환
+     * - 기존 LLM 파서 기반 구조 유지
      */
     @PostMapping
     public ResponseEntity<List<SongResponse>> recommend(@RequestBody CanonicalTagQuery query) {
@@ -54,13 +56,48 @@ public class RecommendationController {
                             YouTubeService.watchUrl(videoId),
                             YouTubeService.embedUrl(videoId),
                             YouTubeService.thumbnailUrl(videoId),
-                            song.albumImageUrl(),   // ✅ 추가됨 (GeniusService 결과)
+                            song.albumImageUrl(),   // ✅ GeniusService 결과 포함
                             song.score()
                     );
                 }))
                 .toList();
 
         var responses = futures.stream().map(CompletableFuture::join).toList();
+        return ResponseEntity.ok(responses);
+    }
+
+    /**
+     * ✅ POST /api/recommend/simple
+     * CSV → PostgreSQL 마이그레이션 기반 단순 추천 API
+     * - CanonicalTagQuerySimple(JSON) 기반으로 상위 30곡 반환
+     * - Swagger 및 DB 테스트용
+     */
+    @PostMapping("/simple")
+    public ResponseEntity<List<SongResponse>> recommendSimple(@RequestBody CanonicalTagQuerySimple query) {
+
+        var list = recommender.recommend(query);
+
+        if (list.isEmpty()) {
+            return ResponseEntity.noContent().build();
+        }
+
+        // 🎵 YouTube ID 매칭 + 썸네일 추가 (동기 방식)
+        var responses = list.stream()
+                .map(song -> {
+                    String videoId = yt.fetchVideoIdBySearch(song.title(), song.artist());
+                    return new SongResponse(
+                            song.title(),
+                            song.artist(),
+                            videoId,
+                            YouTubeService.watchUrl(videoId),
+                            YouTubeService.embedUrl(videoId),
+                            YouTubeService.thumbnailUrl(videoId),
+                            song.albumImageUrl(),
+                            song.score()
+                    );
+                })
+                .toList();
+
         return ResponseEntity.ok(responses);
     }
 

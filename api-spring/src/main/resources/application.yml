@@ -15,7 +15,8 @@ spring:
   jpa:
     open-in-view: false
     hibernate:
-      ddl-auto: none
+      # 기존 none → CSVToDbLoader가 자동 생성하므로 update로 변경
+      ddl-auto: update
     properties:
       hibernate:
         format_sql: true
@@ -24,12 +25,6 @@ spring:
   sql:
     init:
       mode: always
-
-      #data:
-      #redis:
-      # ⚡ Docker 안 쓰므로 localhost로 고정
-      #host: localhost
-      #port: 6379
 
   security:
     oauth2:
@@ -56,7 +51,7 @@ jwt:
 
 # ✅ AES-256 master key — 정확히 32바이트
 crypto:
-  masterKeyBase64: Q2xvdWRpZnlUcnVlMzJCeXRlU2VjdXJlS2V5MTIzNDU2
+  masterKeyBase64: p9vUQ8tmbb2XlLRtkLxvVh5uDlHlbPoQZ9k1c6hOZqI=
 
 management:
   endpoints:
@@ -68,10 +63,11 @@ management:
       probes:
         enabled: true
 
+# ✅ Cloudify custom settings
 cloudify:
   data:
-    songs: data/songs.csv
-    constraints: data/constraints.csv
+    songs: classpath:songs.csv
+    constraints: classpath:constraints.csv
   youtube:
     apiKey: ${YOUTUBE_API_KEY:AIzaSyCfwPWx_9qmUwAu0IqmSFIQ8WZJ_TzwTsw}
   llm:
@@ -88,3 +84,12 @@ logging:
 genius:
   api:
     token: ${GENIUS_API_TOKEN:CzBTTjI3SfZE35PtqbjMg6P8f_6GitXeHJf2KZ2W171hukwu5gTShhAqxjZxNje4}
+
+cors:
+  allowed-origins: "*"
+  allowed-methods: "*"
+  allowed-headers: "*"
+
+app:
+  front:
+    redirect-url: "http://localhost:3000"

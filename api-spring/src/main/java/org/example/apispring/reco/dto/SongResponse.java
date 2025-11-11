@@ -1,5 +1,7 @@
 package org.example.apispring.reco.dto;
 
+import org.example.apispring.reco.domain.SongRecord;
+
 /**
  * 🎧 SongResponse
  * - 추천 결과를 반환하는 DTO (record 기반)
@@ -14,4 +16,18 @@ public record SongResponse(
         String thumbnailUrl,
         String albumImageUrl,
         double score
-) {}
+) {
+    // ✅ 정적 팩토리 메서드 추가
+    public static SongResponse of(SongRecord record, double score) {
+        return new SongResponse(
+                record.getTitle(),
+                record.getArtist(),
+                null,       // videoId (나중에 YouTubeService에서 채워짐)
+                null,       // watchUrl
+                null,       // embedUrl
+                null,       // thumbnailUrl
+                null,       // albumImageUrl
+                score
+        );
+    }
+}

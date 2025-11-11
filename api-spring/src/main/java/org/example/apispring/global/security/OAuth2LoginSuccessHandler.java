@@ -21,7 +21,7 @@ import org.springframework.stereotype.Component;
 import java.io.IOException;
 import java.time.Duration;
 
-@Component
+//@Component
 @RequiredArgsConstructor
 public class OAuth2LoginSuccessHandler implements AuthenticationSuccessHandler {
 

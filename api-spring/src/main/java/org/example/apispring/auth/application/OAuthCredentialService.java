@@ -34,85 +34,57 @@ public class OAuthCredentialService {
 
     @PostConstruct
     void init() {
-        System.out.println("=== [OAuthCredentialService.init] masterKeyBase64 raw: " + masterKeyBase64);
-
-        byte[] raw;
-        try {
-            raw = Base64.getDecoder().decode(Objects.requireNonNull(masterKeyBase64));
-        } catch (Exception e) {
-            throw new IllegalStateException("❌ Base64 decode 실패: " + e.getMessage());
-        }
-
-        System.out.println("=== [OAuthCredentialService.init] decoded length: " + raw.length);
-
-        if (raw.length != 32) {
-            System.out.println("⚠️ AES Key 길이 오류(" + raw.length + " bytes) → 기본키로 대체함");
-            // 강제로 정상 32바이트 키로 교체 (임시)
-            raw = "CloudifyTrue32ByteSecureKey123456".getBytes(StandardCharsets.UTF_8);
-        }
-
-        this.keySpec = new SecretKeySpec(raw, "AES");
-        System.out.println("✅ AES Key 초기화 완료 (" + raw.length + " bytes)");
+        byte[] raw = Base64.getDecoder().decode(masterKeyBase64);
+        if (raw.length != 32)
+            throw new IllegalStateException("❌ AES-256 key must be 32 bytes");
+        keySpec = new SecretKeySpec(raw, "AES");
     }
 
-
     @Transactional
-    public void store(UUID userId,
-                      String accessTokenPlain,
-                      String refreshTokenPlain,
-                      Instant accessTokenExpiresAt,
-                      String scopes) {
+    public void saveOrUpdate(UUID userId,
+                             String accessTokenPlain,
+                             String refreshTokenPlain,
+                             Instant accessTokenExpiresAt,
+                             Set<String> scopes) {
 
-        // TODO: BusinessException(OAUTH_USER_NOT_FOUND)
         var user = userRepo.findById(userId).orElseThrow();
-
-        if (accessTokenPlain == null || accessTokenExpiresAt == null) {
-            // TODO: BusinessException(OAUTH_TOKEN_MISSING)
-            throw new IllegalArgumentException("access token or expiresAt is null");
-        }
-
         String atEnc = encrypt(accessTokenPlain, userId);
         String rtEnc = refreshTokenPlain != null ? encrypt(refreshTokenPlain, userId) : null;
+        String scopeStr = String.join(" ", scopes);
 
         if (credentialsRepo.existsByUser_Id(userId)) {
-            if (rtEnc != null) {
-                credentialsRepo.updateAccessAndRefresh(userId, atEnc, accessTokenExpiresAt, rtEnc);
-            } else {
-                credentialsRepo.updateAccessToken(userId, atEnc, accessTokenExpiresAt);
-            }
+            credentialsRepo.updateTokens(userId, atEnc, accessTokenExpiresAt, rtEnc, scopeStr);
         } else {
             var entity = OAuthCredentials.builder()
                     .user(user)
                     .accessTokenEnc(atEnc)
-                    .refreshTokenEnc(rtEnc != null ? rtEnc : "") // TODO: 컬럼을 nullable로 바꾸고 null 그대로 저장하는 게 더 바람직
+                    .refreshTokenEnc(rtEnc)
                     .accessTokenExpiresAt(accessTokenExpiresAt)
-                    .scopes(scopes != null ? scopes : "")
+                    .scopes(scopeStr)
                     .build();
             credentialsRepo.save(entity);
         }
-
-        // TODO: 이후 단계에서 Redis 캐시에 AT를 TTL로 저장(만료-버퍼) → 중복 로직은 헬퍼로 분리 예정
     }
 
-    public Optional<DecryptedCredentials> getDecrypted(UUID userId) {
-        return credentialsRepo.findByUser_Id(userId).map(c -> new DecryptedCredentials(
-                decrypt(c.getAccessTokenEnc(), userId),              // TODO: BusinessException(OAUTH_DECRYPT_FAIL)
-                decrypt(emptyToNull(c.getRefreshTokenEnc()), userId),// TODO: BusinessException(OAUTH_DECRYPT_FAIL)
-                c.getAccessTokenExpiresAt(),
-                c.getScopes()
-        ));
-    }
-
-    public boolean hasScopes(UUID userId, String... required) {
+    public Optional<DecryptedCredentials> findDecrypted(UUID userId) {
         return credentialsRepo.findByUser_Id(userId)
-                .map(c -> containsAllScopes(c.getScopes(), required))
+                .map(c -> new DecryptedCredentials(
+                        decrypt(c.getAccessTokenEnc(), userId),
+                        decrypt(c.getRefreshTokenEnc(), userId),
+                        c.getAccessTokenExpiresAt(),
+                        Set.of(c.getScopes().split(" "))
+                ));
+    }
+
+    public boolean hasAllScopes(UUID userId, Set<String> required) {
+        return findDecrypted(userId)
+                .map(c -> c.scopes().containsAll(required))
                 .orElse(false);
     }
 
-    public Set<String> missingScopes(UUID userId, String... required) {
-        return credentialsRepo.findByUser_Id(userId)
-                .map(c -> missingScopesFrom(c.getScopes(), required))
-                .orElseGet(() -> normalized(required));
+    @Transactional
+    public void disconnect(UUID userId) {
+        credentialsRepo.deleteByUser_Id(userId);
     }
 
     private String encrypt(String plaintext, UUID userId) {
@@ -127,7 +99,6 @@ public class OAuthCredentialService {
             bb.put(iv).put(ct);
             return Base64.getEncoder().encodeToString(bb.array());
         } catch (Exception e) {
-            // TODO: BusinessException(OAUTH_ENCRYPT_FAIL)
             throw new IllegalStateException("encrypt failed", e);
         }
     }
@@ -143,43 +114,14 @@ public class OAuthCredentialService {
             cipher.updateAAD(("GOOGLE|" + userId).getBytes(StandardCharsets.UTF_8));
             return new String(cipher.doFinal(ct), StandardCharsets.UTF_8);
         } catch (Exception e) {
-            // TODO: BusinessException(OAUTH_DECRYPT_FAIL)
             throw new IllegalStateException("decrypt failed", e);
         }
     }
 
-    private static String emptyToNull(String s) {
-        return (s == null || s.isBlank()) ? null : s;
-    }
-
-    private static boolean containsAllScopes(String granted, String... required) {
-        if (required == null || required.length == 0) return true;
-        Set<String> g = normalized(granted);
-        for (String r : required) {
-            if (r == null || r.isBlank()) continue;
-            if (!g.contains(r)) return false;
-        }
-        return true;
-    }
-
-    private static Set<String> missingScopesFrom(String granted, String... required) {
-        Set<String> g = normalized(granted);
-        return normalized(required).stream().filter(r -> !g.contains(r)).collect(Collectors.toCollection(TreeSet::new));
-    }
-
-    private static Set<String> normalized(String scopes) {
-        if (scopes == null || scopes.isBlank()) return Set.of();
-        return Arrays.stream(scopes.trim().split("\\s+"))
-                .filter(s -> !s.isBlank())
-                .collect(Collectors.toCollection(TreeSet::new));
-    }
-
-    private static Set<String> normalized(String... scopes) {
-        if (scopes == null || scopes.length == 0) return Set.of();
-        return Arrays.stream(scopes)
-                .filter(s -> s != null && !s.isBlank())
-                .collect(Collectors.toCollection(TreeSet::new));
-    }
-
-    public record DecryptedCredentials(String accessToken, String refreshToken, Instant accessTokenExpiresAt, String scopes) {}
+    public record DecryptedCredentials(
+            String accessToken,
+            String refreshToken,
+            Instant accessTokenExpiresAt,
+            Set<String> scopes
+    ) {}
 }
