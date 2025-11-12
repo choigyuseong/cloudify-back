@@ -1,36 +1,54 @@
 package org.example.apispring.auth.domain;
 
+import org.example.apispring.user.domain.User;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
-import org.springframework.transaction.annotation.Transactional;
+import org.springframework.data.repository.query.Param;
+
 import java.time.Instant;
 import java.util.Optional;
 import java.util.UUID;
 
 public interface OAuthCredentialsRepository extends JpaRepository<OAuthCredentials, UUID> {
 
-    boolean existsByUser_Id(UUID userId);
+    Optional<OAuthCredentials> findByUser(User user);
 
     Optional<OAuthCredentials> findByUser_Id(UUID userId);
 
-    @Transactional
-    void deleteByUser_Id(UUID userId);
+    boolean existsByUser_Id(UUID userId);
 
-    @Transactional
-    @Modifying
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
     @Query("""
-        UPDATE OAuthCredentials c
-           SET c.accessTokenEnc = :accessTokenEnc,
-               c.accessTokenExpiresAt = :accessTokenExpiresAt,
-               c.refreshTokenEnc = :refreshTokenEnc,
-               c.scopes = :scopes
-         WHERE c.user.id = :userId
-           AND c.revoked = false
-    """)
-    void updateTokens(UUID userId,
-                      String accessTokenEnc,
-                      Instant accessTokenExpiresAt,
-                      String refreshTokenEnc,
-                      String scopes);
+                update OAuthCredentials c
+                   set c.accessTokenEnc = :accessTokenEnc,
+                       c.accessTokenExpiresAt = :accessTokenExpiresAt
+                 where c.user.id = :userId
+                   and c.revoked = false
+            """)
+    int updateAccessToken(@Param("userId") UUID userId,
+                          @Param("accessTokenEnc") String accessTokenEnc,
+                          @Param("accessTokenExpiresAt") Instant accessTokenExpiresAt);
+
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
+    @Query("""
+                update OAuthCredentials c
+                   set c.accessTokenEnc = :accessTokenEnc,
+                       c.accessTokenExpiresAt = :accessTokenExpiresAt,
+                       c.refreshTokenEnc = :refreshTokenEnc
+                 where c.user.id = :userId
+                   and c.revoked = false
+            """)
+    int updateAccessAndRefresh(@Param("userId") UUID userId,
+                               @Param("accessTokenEnc") String accessTokenEnc,
+                               @Param("accessTokenExpiresAt") Instant accessTokenExpiresAt,
+                               @Param("refreshTokenEnc") String refreshTokenEnc);
+
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
+    @Query("""
+                update OAuthCredentials c
+                   set c.revoked = true
+                 where c.user.id = :userId
+            """)
+    int markRevoked(@Param("userId") UUID userId);
 }

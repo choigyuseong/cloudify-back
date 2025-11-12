@@ -11,7 +11,7 @@ import org.springframework.web.client.RestTemplate;
 
 import java.util.Map;
 
-//@Component
+@Component
 @RequiredArgsConstructor
 public class GoogleTokenClient {
     private final RestTemplate rt = new RestTemplate();
