@@ -1,19 +1,27 @@
 package org.example.apispring.reco.service;
 
+import lombok.RequiredArgsConstructor;
 import org.example.apispring.reco.domain.SongRecord;
+import org.example.apispring.reco.domain.SongRecordRepository;
 import org.example.apispring.reco.dto.CanonicalTagQuery;
+import org.example.apispring.reco.dto.CanonicalTagQuerySimple;
 import org.example.apispring.reco.dto.SongResponse;
 import org.example.apispring.reco.service.youtube.YouTubeService;
 import org.springframework.stereotype.Service;
 
 import java.util.*;
-import java.util.concurrent.*;
 import java.util.stream.Collectors;
 
+/**
+ * 🎵 RecommendationService
+ * - LLM 기반 + PostgreSQL 기반 추천 모두 지원
+ * - CSV 데이터(DB에 이관된 SongRecord 테이블) 기반
+ */
 @Service
+@RequiredArgsConstructor
 public class RecommendationService {
 
-    private final CsvLoader csvLoader;
+    private final SongRecordRepository songRepo;
     private final YouTubeService youtubeService;
 
     // 🎯 태그별 가중치 (정책 기반)
@@ -25,71 +33,72 @@ public class RecommendationService {
             "TEMPO", 0.05
     );
 
-    public RecommendationService(CsvLoader csvLoader, YouTubeService youtubeService) {
-        this.csvLoader = csvLoader;
-        this.youtubeService = youtubeService;
-    }
-
-    /**
-     * 🎯 CanonicalTagQuery 기반 추천 (Top-30)
-     * - CSV 로드 후 곡별 유사도 계산
-     * - YouTube videoId 비동기로 병렬 조회
-     */
+    // ====================================================================
+    // 1️⃣ LLM 기반 추천 (CanonicalTagQuery)
+    // ====================================================================
     public List<SongResponse> recommend(CanonicalTagQuery query) {
-        List<SongRecord> songs = csvLoader.getSongs();
-        if (songs == null || songs.isEmpty()) return List.of();
-
+        List<SongRecord> allSongs = songRepo.findAll();
         Map<SongRecord, Double> scored = new HashMap<>();
 
-        // ✅ 태그 기반 점수 계산
-        for (SongRecord song : songs) {
+        for (SongRecord song : allSongs) {
             double score = 0.0;
-            if (query.getTags() == null) continue;
-
+            // LLM 기반의 tag.id 문자열 포함 여부 비교
             for (CanonicalTagQuery.Tag tag : query.getTags()) {
-                String id = tag.id();
-                String type = id.split("\\.")[0].toUpperCase();
-                double weight = WEIGHTS.getOrDefault(type, 0.0);
-
-                if (song.constraints() != null && song.constraints().matches(id)) {
-                    score += weight;
-                }
+                String id = tag.id().toLowerCase();
+                if (id.contains("mood") && id.contains(song.getMood().toLowerCase())) score += WEIGHTS.get("MOOD");
+                if (id.contains("genre") && id.contains(song.getGenre().toLowerCase())) score += WEIGHTS.get("GENRE");
+                if (id.contains("activity") && id.contains(song.getActivity().toLowerCase())) score += WEIGHTS.get("ACTIVITY");
+                if (id.contains("branch") && id.contains(song.getBranch().toLowerCase())) score += WEIGHTS.get("BRANCH");
+                if (id.contains("tempo") && id.contains(song.getTempo().toLowerCase())) score += WEIGHTS.get("TEMPO");
             }
             scored.put(song, score);
         }
 
-        // ✅ 상위 30곡 정렬
-        List<Map.Entry<SongRecord, Double>> top30 = scored.entrySet().stream()
+        return scored.entrySet().stream()
                 .sorted(Map.Entry.<SongRecord, Double>comparingByValue().reversed())
                 .limit(30)
-                .toList();
-
-        // ✅ 비동기 YouTube videoId 조회
-        ExecutorService executor = Executors.newFixedThreadPool(8);
-        List<CompletableFuture<SongResponse>> futures = top30.stream()
-                .map(entry -> CompletableFuture.supplyAsync(() -> {
-                    SongRecord s = entry.getKey();
-                    double score = entry.getValue();
-
-                    String videoId = youtubeService.fetchVideoIdBySearch(s.title(), s.artist());
-
-                    return new SongResponse(
-                            s.title(),
-                            s.artist(),
-                            videoId,
-                            YouTubeService.watchUrl(videoId),
-                            YouTubeService.embedUrl(videoId),
-                            YouTubeService.thumbnailUrl(videoId),
-                            score
-                    );
-                }, executor))
-                .toList();
-
-        List<SongResponse> responses = futures.stream()
-                .map(CompletableFuture::join)
+                .map(entry -> new SongResponse(
+                        entry.getKey().getTitle(),
+                        entry.getKey().getArtist(),
+                        null, null, null, null, null,
+                        entry.getValue()
+                ))
                 .collect(Collectors.toList());
+    }
 
-        executor.shutdown();
-        return responses;
+    // ====================================================================
+    // 2️⃣ PostgreSQL 기반 추천 (CanonicalTagQuerySimple)
+    // ====================================================================
+    public List<SongResponse> recommend(CanonicalTagQuerySimple query) {
+        List<SongRecord> allSongs = songRepo.findAll();
+        Map<SongRecord, Double> scored = new HashMap<>();
+
+        for (SongRecord song : allSongs) {
+            double score = 0.0;
+
+            if (query.mood() != null && query.mood().equalsIgnoreCase(song.getMood()))
+                score += WEIGHTS.get("MOOD");
+            if (query.genre() != null && query.genre().equalsIgnoreCase(song.getGenre()))
+                score += WEIGHTS.get("GENRE");
+            if (query.activity() != null && query.activity().equalsIgnoreCase(song.getActivity()))
+                score += WEIGHTS.get("ACTIVITY");
+            if (query.branch() != null && query.branch().equalsIgnoreCase(song.getBranch()))
+                score += WEIGHTS.get("BRANCH");
+            if (query.tempo() != null && query.tempo().equalsIgnoreCase(song.getTempo()))
+                score += WEIGHTS.get("TEMPO");
+
+            scored.put(song, score);
+        }
+
+        return scored.entrySet().stream()
+                .sorted(Map.Entry.<SongRecord, Double>comparingByValue().reversed())
+                .limit(30)
+                .map(entry -> new SongResponse(
+                        entry.getKey().getTitle(),
+                        entry.getKey().getArtist(),
+                        null, null, null, null, null,
+                        entry.getValue()
+                ))
+                .collect(Collectors.toList());
     }
 }

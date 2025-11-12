@@ -1,16 +1,20 @@
 package org.example.apispring.auth.application;
 
-import jakarta.annotation.Nullable;
+import jakarta.annotation.PostConstruct;
 import lombok.RequiredArgsConstructor;
 import org.example.apispring.auth.domain.OAuthCredentials;
 import org.example.apispring.auth.domain.OAuthCredentialsRepository;
-import org.example.apispring.auth.infra.GoogleTokenRevoker;
-import org.example.apispring.global.util.TokenCrypto;
-import org.example.apispring.user.domain.User;
 import org.example.apispring.user.domain.UserRepository;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import javax.crypto.Cipher;
+import javax.crypto.spec.GCMParameterSpec;
+import javax.crypto.spec.SecretKeySpec;
+import java.nio.ByteBuffer;
+import java.nio.charset.StandardCharsets;
+import java.security.SecureRandom;
 import java.time.Instant;
 import java.util.*;
 import java.util.stream.Collectors;
@@ -19,111 +23,105 @@ import java.util.stream.Collectors;
 @RequiredArgsConstructor
 public class OAuthCredentialService {
 
-    private final OAuthCredentialsRepository credRepository;
-    private final UserRepository userRepository;
-    private final TokenCrypto crypto;
-    private final GoogleTokenRevoker revoker;
+    private final OAuthCredentialsRepository credentialsRepo;
+    private final UserRepository userRepo;
+
+    @Value("${crypto.masterKeyBase64}")
+    private String masterKeyBase64;
+
+    private SecretKeySpec keySpec;
+    private final SecureRandom random = new SecureRandom();
+
+    @PostConstruct
+    void init() {
+        byte[] raw = Base64.getDecoder().decode(masterKeyBase64);
+        if (raw.length != 32)
+            throw new IllegalStateException("❌ AES-256 key must be 32 bytes");
+        keySpec = new SecretKeySpec(raw, "AES");
+    }
 
     @Transactional
-    public void saveOrUpdate(
-            UUID userId,
-            String googleAccessTokenPlain,
-            @Nullable String googleRefreshTokenPlain,
-            Instant accessTokenExpiresAt,
-            Set<String> scopes
-    ) {
-        User user = userRepository.findById(userId)
-                .orElseThrow(() -> new NoSuchElementException("User not found: " + userId));
+    public void saveOrUpdate(UUID userId,
+                             String accessTokenPlain,
+                             String refreshTokenPlain,
+                             Instant accessTokenExpiresAt,
+                             Set<String> scopes) {
 
-        // 암호화 + 정규화
-        String atEnc = crypto.encrypt(Objects.requireNonNull(googleAccessTokenPlain));
-        String rtEnc = (googleRefreshTokenPlain != null && !googleRefreshTokenPlain.isBlank())
-                ? crypto.encrypt(googleRefreshTokenPlain)
-                : null;
+        var user = userRepo.findById(userId).orElseThrow();
+        String atEnc = encrypt(accessTokenPlain, userId);
+        String rtEnc = refreshTokenPlain != null ? encrypt(refreshTokenPlain, userId) : null;
+        String scopeStr = String.join(" ", scopes);
 
-        var credsOpt = credRepository.findByUser(user);
-        
-        // 해당 유저의 자격증명을 처음 저장하는 경우 ( RT 받음 )
-        if (credsOpt.isEmpty()) {
-            if (rtEnc == null) {
-                throw new IllegalStateException("Refresh token required on first save (use access_type=offline)");
-            }
-            OAuthCredentials c = OAuthCredentials.builder()
+        if (credentialsRepo.existsByUser_Id(userId)) {
+            credentialsRepo.updateTokens(userId, atEnc, accessTokenExpiresAt, rtEnc, scopeStr);
+        } else {
+            var entity = OAuthCredentials.builder()
                     .user(user)
                     .accessTokenEnc(atEnc)
                     .refreshTokenEnc(rtEnc)
                     .accessTokenExpiresAt(accessTokenExpiresAt)
-                    .scopes("")
-                    .build();   
-            c.setScopesFrom(scopes);
-            credRepository.save(c);
-            return;
+                    .scopes(scopeStr)
+                    .build();
+            credentialsRepo.save(entity);
         }
-
-        OAuthCredentials c = credsOpt.get();
-
-        // 사용자가 권한 회수한 경우 ( RT 받음 )
-        if (c.isRevoked()) {
-            if (rtEnc == null) {
-                throw new IllegalStateException("Account was revoked. New offline consent (refresh token) required.");
-            }
-            c.unRevoke();
-            c.updateTokens(atEnc, accessTokenExpiresAt, rtEnc);
-            c.setScopesFrom(scopes);
-            return;
-        }
-
-        c.updateTokens(atEnc, accessTokenExpiresAt, rtEnc);
-        c.setScopesFrom(scopes);
     }
 
-    // 복호화
-    @Transactional(readOnly = true)
-    public Optional<GoogleTokenSnapshot> loadDecrypted(UUID userId) {
-        return credRepository.findByUser_Id(userId)
-                .filter(c -> !c.isRevoked())
-                .map(c -> new GoogleTokenSnapshot(
-                        userId,
-                        c.getAccessTokenEnc() == null ? null : crypto.decrypt(c.getAccessTokenEnc()),
-                        c.getRefreshTokenEnc() == null ? null : crypto.decrypt(c.getRefreshTokenEnc()),
+    public Optional<DecryptedCredentials> findDecrypted(UUID userId) {
+        return credentialsRepo.findByUser_Id(userId)
+                .map(c -> new DecryptedCredentials(
+                        decrypt(c.getAccessTokenEnc(), userId),
+                        decrypt(c.getRefreshTokenEnc(), userId),
                         c.getAccessTokenExpiresAt(),
-                        splitScopes(c.getScopes())
+                        Set.of(c.getScopes().split(" "))
                 ));
     }
 
-    @Transactional(readOnly = true)
     public boolean hasAllScopes(UUID userId, Set<String> required) {
-        return credRepository.findByUser_Id(userId)
-                .filter(c -> !c.isRevoked())
-                .map(c -> splitScopes(c.getScopes()).containsAll(required))
+        return findDecrypted(userId)
+                .map(c -> c.scopes().containsAll(required))
                 .orElse(false);
-    }
-
-    private Set<String> splitScopes(String raw) {
-        if (raw == null || raw.isBlank()) return Collections.emptySet();
-        return Arrays.stream(raw.trim().split("\\s+"))
-                .filter(s -> !s.isBlank())
-                .collect(Collectors.toCollection(LinkedHashSet::new));
-    }
-
-    public record GoogleTokenSnapshot(
-            UUID userId,
-            String accessToken,
-            String refreshToken,
-            Instant accessTokenExpiresAt,
-            Set<String> scopes
-    ) {
     }
 
     @Transactional
     public void disconnect(UUID userId) {
-        credRepository.findByUser_Id(userId).ifPresent(c -> {
-            // 1) 구글 권한 철회 (RT 복호화 후)
-            String plainRt = c.getRefreshTokenEnc() == null ? null : crypto.decrypt(c.getRefreshTokenEnc());
-            revoker.revokeRefreshToken(plainRt);
-
-            // 2) 로컬 자격 증명 폐기
-            c.revoke(); // tokens=null + revoked=true (nullable=true 전제)
-        });
+        credentialsRepo.deleteByUser_Id(userId);
     }
+
+    private String encrypt(String plaintext, UUID userId) {
+        try {
+            byte[] iv = new byte[12];
+            random.nextBytes(iv);
+            Cipher cipher = Cipher.getInstance("AES/GCM/NoPadding");
+            cipher.init(Cipher.ENCRYPT_MODE, keySpec, new GCMParameterSpec(128, iv));
+            cipher.updateAAD(("GOOGLE|" + userId).getBytes(StandardCharsets.UTF_8));
+            byte[] ct = cipher.doFinal(plaintext.getBytes(StandardCharsets.UTF_8));
+            ByteBuffer bb = ByteBuffer.allocate(12 + ct.length);
+            bb.put(iv).put(ct);
+            return Base64.getEncoder().encodeToString(bb.array());
+        } catch (Exception e) {
+            throw new IllegalStateException("encrypt failed", e);
+        }
+    }
+
+    private String decrypt(String ciphertextBase64, UUID userId) {
+        if (ciphertextBase64 == null || ciphertextBase64.isBlank()) return null;
+        try {
+            byte[] raw = Base64.getDecoder().decode(ciphertextBase64);
+            byte[] iv = Arrays.copyOfRange(raw, 0, 12);
+            byte[] ct = Arrays.copyOfRange(raw, 12, raw.length);
+            Cipher cipher = Cipher.getInstance("AES/GCM/NoPadding");
+            cipher.init(Cipher.DECRYPT_MODE, keySpec, new GCMParameterSpec(128, iv));
+            cipher.updateAAD(("GOOGLE|" + userId).getBytes(StandardCharsets.UTF_8));
+            return new String(cipher.doFinal(ct), StandardCharsets.UTF_8);
+        } catch (Exception e) {
+            throw new IllegalStateException("decrypt failed", e);
+        }
+    }
+
+    public record DecryptedCredentials(
+            String accessToken,
+            String refreshToken,
+            Instant accessTokenExpiresAt,
+            Set<String> scopes
+    ) {}
 }
