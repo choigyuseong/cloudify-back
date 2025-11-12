@@ -42,7 +42,7 @@ public class OAuthCredentialService {
                 : null;
 
         var credsOpt = credRepository.findByUser(user);
-        
+
         // 해당 유저의 자격증명을 처음 저장하는 경우 ( RT 받음 )
         if (credsOpt.isEmpty()) {
             if (rtEnc == null) {
@@ -54,7 +54,7 @@ public class OAuthCredentialService {
                     .refreshTokenEnc(rtEnc)
                     .accessTokenExpiresAt(accessTokenExpiresAt)
                     .scopes("")
-                    .build();   
+                    .build();
             c.setScopesFrom(scopes);
             credRepository.save(c);
             return;

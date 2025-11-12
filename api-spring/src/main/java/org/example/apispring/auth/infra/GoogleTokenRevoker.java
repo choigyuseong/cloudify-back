@@ -10,7 +10,7 @@ public class GoogleTokenRevoker {
     private static final URI REVOCATION_URI = URI.create("https://oauth2.googleapis.com/revoke");
 
     public void revokeRefreshToken(String refreshToken) {
-        if (refreshToken == null || refreshToken.isBlank()) return; // 멱등
+        if (refreshToken == null || refreshToken.isBlank()) return;
         try {
             var body = "token=" + URLEncoder.encode(refreshToken, StandardCharsets.UTF_8);
             var req = HttpRequest.newBuilder(REVOCATION_URI)
@@ -19,7 +19,6 @@ public class GoogleTokenRevoker {
                     .build();
             HttpClient.newHttpClient().send(req, HttpResponse.BodyHandlers.discarding());
         } catch (Exception ignored) {
-            // 로깅 정도만(실패해도 멱등, 다음에 다시 revoke 시도 가능)
         }
     }
 }

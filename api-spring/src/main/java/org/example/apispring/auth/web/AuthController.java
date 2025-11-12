@@ -58,7 +58,7 @@ public class AuthController {
     @GetMapping("/me")
     public Map<String, Object> me(Authentication auth) {
         if (auth == null) {
-            throw new InsufficientAuthenticationException("NO_AUTH");
+            throw new BusinessException(ErrorCode.UNAUTHORIZED);
         }
         JwtPrincipal p = (JwtPrincipal) auth.getPrincipal();
         return Map.of("userId", p.userId());
@@ -70,7 +70,7 @@ public class AuthController {
             HttpServletResponse res
     ) {
         if (principal == null) {
-            throw new InsufficientAuthenticationException("NO_AUTH");
+            throw new BusinessException(ErrorCode.UNAUTHORIZED);
         }
 
         var userId = principal.userId();
