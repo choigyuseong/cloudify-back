@@ -6,6 +6,7 @@ import org.example.apispring.reco.domain.SongRecord;
 import org.example.apispring.reco.domain.SongRecordRepository;
 import org.springframework.stereotype.Service;
 
+import jakarta.annotation.PostConstruct;
 import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.io.Reader;
@@ -26,9 +27,8 @@ public class CsvToDbLoader {
     /**
      * ✅ 앱 부팅 시 자동 실행
      * PostgreSQL에 song_record 테이블이 비어 있으면 CSV 데이터를 로드함.
-     * ⚠️ 현재는 마이그레이션 완료로 인해 자동 실행 중단됨.
      */
-    // @PostConstruct   // ✅ 주석 처리 — 자동 실행 방지 (중복 삽입 예방)
+    //@PostConstruct   // ✅ 부트 시 자동으로 songs.csv import
     public void loadCsvToDatabase() {
         System.out.println("🚀 Starting CSV → PostgreSQL migration...");
 

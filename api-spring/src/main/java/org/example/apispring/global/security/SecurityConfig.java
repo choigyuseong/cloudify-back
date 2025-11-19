@@ -7,6 +7,9 @@ import org.springframework.context.annotation.Configuration;
 import org.springframework.security.config.Customizer;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.http.SessionCreationPolicy;
+import org.springframework.security.oauth2.client.web.AuthorizationRequestRepository;
+import org.springframework.security.oauth2.client.web.HttpSessionOAuth2AuthorizationRequestRepository;
+import org.springframework.security.oauth2.core.endpoint.OAuth2AuthorizationRequest;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.LoginUrlAuthenticationEntryPoint;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
@@ -22,6 +25,12 @@ public class SecurityConfig {
     private final OAuth2LoginSuccessHandler oAuth2LoginSuccessHandler;
     private final OAuth2LoginFailureHandler oAuth2LoginFailureHandler;
 
+    // ✅ OAuth2 AuthorizationRequest를 "세션"에 저장/복구 → state 검증 정상화
+    @Bean
+    AuthorizationRequestRepository<OAuth2AuthorizationRequest> authorizationRequestRepository() {
+        return new HttpSessionOAuth2AuthorizationRequestRepository();
+    }
+
     @Bean
     SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
         http
@@ -30,12 +39,12 @@ public class SecurityConfig {
                 .sessionManagement(sm -> sm.sessionCreationPolicy(SessionCreationPolicy.IF_REQUIRED))
                 .authorizeHttpRequests(auth -> auth
                         .requestMatchers(
-                                "/",
-                                "/error",
+                                "/", "/error",
                                 "/actuator/health",
                                 "/v3/api-docs/**",
                                 "/swagger-ui/**", "/swagger-ui.html",
-                                "/oauth2/**", "/login/oauth2/**",
+                                "/login/**",
+                                "/oauth2/**",
                                 "/api/auth/refresh"
                         ).permitAll()
                         .anyRequest().authenticated()
@@ -44,22 +53,25 @@ public class SecurityConfig {
                         .authenticationEntryPoint((req, res, e) -> {
                             String uri = req.getRequestURI();
                             if (uri.startsWith("/api/")) {
-                                // API → 401 JSON
-                                entryPoint.commence(req, res, e);
+                                entryPoint.commence(req, res, e); // API → JSON 401
                             } else {
-                                // 웹 라우트 → 구글 인가로
                                 new LoginUrlAuthenticationEntryPoint("/oauth2/authorization/google")
-                                        .commence(req, res, e);
+                                        .commence(req, res, e); // 웹 → 구글 로그인 시작
                             }
                         })
                         .accessDeniedHandler(accessDeniedHandler)
                 )
                 .oauth2Login(oauth -> oauth
-                        .authorizationEndpoint(ep -> ep.authorizationRequestResolver(googleOAuth2RequestResolver))
+                        .authorizationEndpoint(ep -> ep
+                                .authorizationRequestResolver(googleOAuth2RequestResolver)
+                                .authorizationRequestRepository(authorizationRequestRepository()) // ✅ 추가
+                        )
                         .successHandler(oAuth2LoginSuccessHandler)
                         .failureHandler(oAuth2LoginFailureHandler)
+                        .loginPage("/oauth2/authorization/google") // ✅ 시작 URL 통일
                 );
 
+        // ✅ JWT 필터 삽입
         http.addFilterBefore(jwtAuthFilter, UsernamePasswordAuthenticationFilter.class);
         return http.build();
     }

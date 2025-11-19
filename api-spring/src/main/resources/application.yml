@@ -1,15 +1,20 @@
 server:
   port: ${PORT:8080}
+  servlet:
+    session:
+      cookie:
+        same-site: Lax   # ✅ 로컬 HTTP에서 안전
 
 spring:
   config:
-    import:
-      ""
+    import: optional:file:.env[.properties]
+
   datasource:
     url: ${DB_URL}
     username: ${DB_USER}
     password: ${DB_PASSWORD}
     driver-class-name: org.postgresql.Driver
+
   jpa:
     open-in-view: false
     hibernate:
@@ -17,9 +22,10 @@ spring:
     properties:
       hibernate:
         dialect: org.hibernate.dialect.PostgreSQLDialect
+
   data:
     redis:
-      host: ${REDIS_HOST:redis}
+      host: ${REDIS_HOST:localhost}
       port: ${REDIS_PORT:6379}
 
   security:
@@ -33,19 +39,21 @@ spring:
               - openid
               - email
               - profile
-              - https://www.googleapis.com/auth/youtube
-            redirect-uri: "https://localhost/login/oauth2/code/google"
+              - https://www.googleapis.com/auth/youtube.readonly
+            # ✅ baseUrl 자동계산 대신 "고정" (콘솔과 1자도 동일)
+            redirect-uri: "http://localhost:8080/login/oauth2/code/{registrationId}"
+            client-name: Google
         provider:
           google:
             issuer-uri: https://accounts.google.com
 
 security:
   cookie:
-    secure: ${COOKIE_SECURE}
-    samesite: ${COOKIE_SAMESITE}
+    secure: ${COOKIE_SECURE:false}
+    samesite: ${COOKIE_SAMESITE:Lax}
 
 cors:
-  allowed-origins: ${CORS_ALLOWED_ORIGINS}
+  allowed-origins: ${CORS_ALLOWED_ORIGINS:http://localhost:8080}
   allowed-headers: "Content-Type,Authorization,X-CSRF-Token"
   allowed-methods: "GET,POST,PUT,DELETE,PATCH,OPTIONS"
   allow-credentials: true
@@ -53,9 +61,9 @@ cors:
 jwt:
   secret: ${JWT_SECRET}
   issuer: ${JWT_ISSUER}
-  access-token-expiration: ${JWT_ACCESS_TOKEN_EXPIRATION}
-  refresh-token-expiration: ${JWT_REFRESH_TOKEN_EXPIRATION}
-  allowed-clock-skew-seconds: ${JWT_ALLOWED_CLOCK_SKEW_SECONDS}
+  access-token-expiration: ${JWT_ACCESS_TOKEN_EXPIRATION:900000}
+  refresh-token-expiration: ${JWT_REFRESH_TOKEN_EXPIRATION:1209600000}
+  allowed-clock-skew-seconds: ${JWT_ALLOWED_CLOCK_SKEW_SECONDS:30}
 
 crypto:
   master-key-base64: ${CRYPTO_MASTER_KEY}
@@ -72,21 +80,37 @@ management:
 
 app:
   front:
-    redirect-url: /swagger-ui/index.html
+    redirect-url: http://localhost:8080/swagger-ui/index.html
 
 cloudify:
   youtube:
-    apiKey: ${YOUTUBE_API_KEY}         # 유튜브 Data API v3 검색에 사용할 키 (환경변수로 주입)
+    apiKey: ${YOUTUBE_API_KEY}
+    maxSearchesPerSong: 1
+    candidatesPerSearch: 8
+    earlyStopScore: 0.90
+    rate:
+      permitsPerSecond: 2
+      maxConcurrent: 4
+    cacheTtlSeconds: 2592000
+  limits:
+    maxExternalCallsPerRequest: 40   # ✅ /api/recommend 1회에 외부 호출 총량 상한
+
   llm:
-    baseUrl: ${LLM_BASE_URL:https://api.your-llm.example}  # LLM HTTP 엔드포인트 베이스 URL
-    path: /parse                                           # POST로 호출할 경로
-    apiKey: ${LLM_API_KEY}                                # 필요 시
-    timeoutMs: 2000                                        # 2초 타임아웃
-logging:
-  level:
-    org.example.apispring.youtube.web.YouTubeService: DEBUG
-    org.example.apispring.reco.service.RecommendationService: INFO
+    baseUrl: ${LLM_BASE_URL:http://localhost}
+    path: /parse
+    apiKey: ${LLM_API_KEY:dummy}
+    timeoutMs: 2000
 
 genius:
   api:
-    token: ${GENIUS_API_TOKEN}
+    token: ${GENIUS_API_KEY}
+
+logging:
+  level:
+    org.springframework.security: DEBUG
+    org.springframework.web: DEBUG
+    org.springframework.boot.autoconfigure.security: DEBUG
+    org.springframework.security.oauth2: TRACE
+    org.example.apispring.auth: DEBUG
+    org.example.apispring.global.exception: TRACE
+    org.example.apispring.reco.service.youtube: TRACE

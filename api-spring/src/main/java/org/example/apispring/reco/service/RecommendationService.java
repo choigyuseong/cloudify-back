@@ -6,25 +6,21 @@ import org.example.apispring.reco.domain.SongRecordRepository;
 import org.example.apispring.reco.dto.CanonicalTagQuery;
 import org.example.apispring.reco.dto.CanonicalTagQuerySimple;
 import org.example.apispring.reco.dto.SongResponse;
-import org.example.apispring.reco.service.youtube.YouTubeService;
 import org.springframework.stereotype.Service;
 
 import java.util.*;
 import java.util.stream.Collectors;
 
 /**
- * 🎵 RecommendationService
- * - LLM 기반 + PostgreSQL 기반 추천 모두 지원
- * - CSV 데이터(DB에 이관된 SongRecord 테이블) 기반
+ * ✅ 외부 API 호출 없음: 점수 계산만 수행
+ * - YouTube/Genius 호출은 컨트롤러에서 상위 N개에 한해 수행
  */
 @Service
 @RequiredArgsConstructor
 public class RecommendationService {
 
     private final SongRecordRepository songRepo;
-    private final YouTubeService youtubeService;
 
-    // 🎯 태그별 가중치 (정책 기반)
     private static final Map<String, Double> WEIGHTS = Map.of(
             "MOOD", 0.4,
             "GENRE", 0.3,
@@ -33,71 +29,61 @@ public class RecommendationService {
             "TEMPO", 0.05
     );
 
-    // ====================================================================
-    // 1️⃣ LLM 기반 추천 (CanonicalTagQuery)
-    // ====================================================================
+    // ───────────── LLM 기반 ─────────────
     public List<SongResponse> recommend(CanonicalTagQuery query) {
         List<SongRecord> allSongs = songRepo.findAll();
         Map<SongRecord, Double> scored = new HashMap<>();
 
-        for (SongRecord song : allSongs) {
+        for (SongRecord s : allSongs) {
             double score = 0.0;
-            // LLM 기반의 tag.id 문자열 포함 여부 비교
             for (CanonicalTagQuery.Tag tag : query.getTags()) {
-                String id = tag.id().toLowerCase();
-                if (id.contains("mood") && id.contains(song.getMood().toLowerCase())) score += WEIGHTS.get("MOOD");
-                if (id.contains("genre") && id.contains(song.getGenre().toLowerCase())) score += WEIGHTS.get("GENRE");
-                if (id.contains("activity") && id.contains(song.getActivity().toLowerCase())) score += WEIGHTS.get("ACTIVITY");
-                if (id.contains("branch") && id.contains(song.getBranch().toLowerCase())) score += WEIGHTS.get("BRANCH");
-                if (id.contains("tempo") && id.contains(song.getTempo().toLowerCase())) score += WEIGHTS.get("TEMPO");
+                String id = tag.id().toLowerCase(Locale.ROOT);
+                if (id.contains("mood") && id.contains(s.getMood().toLowerCase(Locale.ROOT)))    score += WEIGHTS.get("MOOD");
+                if (id.contains("genre") && id.contains(s.getGenre().toLowerCase(Locale.ROOT)))  score += WEIGHTS.get("GENRE");
+                if (id.contains("activity") && id.contains(s.getActivity().toLowerCase(Locale.ROOT))) score += WEIGHTS.get("ACTIVITY");
+                if (id.contains("branch") && id.contains(s.getBranch().toLowerCase(Locale.ROOT))) score += WEIGHTS.get("BRANCH");
+                if (id.contains("tempo") && id.contains(s.getTempo().toLowerCase(Locale.ROOT)))   score += WEIGHTS.get("TEMPO");
             }
-            scored.put(song, score);
+            scored.put(s, score);
         }
 
         return scored.entrySet().stream()
                 .sorted(Map.Entry.<SongRecord, Double>comparingByValue().reversed())
                 .limit(30)
-                .map(entry -> new SongResponse(
-                        entry.getKey().getTitle(),
-                        entry.getKey().getArtist(),
-                        null, null, null, null, null,
-                        entry.getValue()
+                .map(e -> new SongResponse(
+                        e.getKey().getTitle(),
+                        e.getKey().getArtist(),
+                        null, null, null, null, // YouTube는 컨트롤러에서 채움
+                        null,                    // Genius도 컨트롤러에서 채움
+                        e.getValue()
                 ))
                 .collect(Collectors.toList());
     }
 
-    // ====================================================================
-    // 2️⃣ PostgreSQL 기반 추천 (CanonicalTagQuerySimple)
-    // ====================================================================
+    // ──────────── Simple 기반 ────────────
     public List<SongResponse> recommend(CanonicalTagQuerySimple query) {
         List<SongRecord> allSongs = songRepo.findAll();
         Map<SongRecord, Double> scored = new HashMap<>();
 
-        for (SongRecord song : allSongs) {
+        for (SongRecord s : allSongs) {
             double score = 0.0;
-
-            if (query.mood() != null && query.mood().equalsIgnoreCase(song.getMood()))
-                score += WEIGHTS.get("MOOD");
-            if (query.genre() != null && query.genre().equalsIgnoreCase(song.getGenre()))
-                score += WEIGHTS.get("GENRE");
-            if (query.activity() != null && query.activity().equalsIgnoreCase(song.getActivity()))
-                score += WEIGHTS.get("ACTIVITY");
-            if (query.branch() != null && query.branch().equalsIgnoreCase(song.getBranch()))
-                score += WEIGHTS.get("BRANCH");
-            if (query.tempo() != null && query.tempo().equalsIgnoreCase(song.getTempo()))
-                score += WEIGHTS.get("TEMPO");
-
-            scored.put(song, score);
+            if (query.mood() != null && query.mood().equalsIgnoreCase(s.getMood()))         score += WEIGHTS.get("MOOD");
+            if (query.genre() != null && query.genre().equalsIgnoreCase(s.getGenre()))       score += WEIGHTS.get("GENRE");
+            if (query.activity() != null && query.activity().equalsIgnoreCase(s.getActivity())) score += WEIGHTS.get("ACTIVITY");
+            if (query.branch() != null && query.branch().equalsIgnoreCase(s.getBranch()))    score += WEIGHTS.get("BRANCH");
+            if (query.tempo() != null && query.tempo().equalsIgnoreCase(s.getTempo()))       score += WEIGHTS.get("TEMPO");
+            scored.put(s, score);
         }
 
         return scored.entrySet().stream()
                 .sorted(Map.Entry.<SongRecord, Double>comparingByValue().reversed())
                 .limit(30)
-                .map(entry -> new SongResponse(
-                        entry.getKey().getTitle(),
-                        entry.getKey().getArtist(),
-                        null, null, null, null, null,
-                        entry.getValue()
+                .map(e -> new SongResponse(
+                        e.getKey().getTitle(),
+                        e.getKey().getArtist(),
+                        null, null, null, null,
+                        null,
+                        e.getValue()
                 ))
                 .collect(Collectors.toList());
     }

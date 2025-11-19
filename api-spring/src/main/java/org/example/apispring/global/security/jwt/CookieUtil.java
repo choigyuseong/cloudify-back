@@ -26,11 +26,16 @@ public class CookieUtil {
         StringBuilder sb = new StringBuilder()
                 .append(name).append("=").append(val == null ? "" : val).append("; ")
                 .append("Path=").append(path).append("; ")
-                .append("HttpOnly; ")
-                .append("Secure; ")
-                .append("SameSite=").append(sameSite).append("; ")
+                .append("HttpOnly; ");
+
+        // ✅ Secure 옵션은 환경에 따라 추가
+        if (secure) sb.append("Secure; ");
+
+        sb.append("SameSite=").append(sameSite).append("; ")
                 .append("Max-Age=").append(maxAge);
+
         if (domain != null && !domain.isBlank()) sb.append("; Domain=").append(domain);
+
         return sb.toString();
     }
 
@@ -66,9 +71,6 @@ public class CookieUtil {
     }
 
     public Optional<String> readRefresh(HttpServletRequest req) {
-        Cookie[] cs = req.getCookies();
-        if (cs == null) return Optional.empty();
-        for (Cookie c : cs) if (REFRESH_COOKIE.equals(c.getName())) return Optional.ofNullable(c.getValue());
-        return Optional.empty();
+        return readCookie(req, REFRESH_COOKIE);
     }
 }
