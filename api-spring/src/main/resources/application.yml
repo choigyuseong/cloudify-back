@@ -96,10 +96,11 @@ cloudify:
     maxExternalCallsPerRequest: 40   # ✅ /api/recommend 1회에 외부 호출 총량 상한
 
   llm:
-    baseUrl: ${LLM_BASE_URL:http://localhost}
-    path: /parse
-    apiKey: ${LLM_API_KEY:dummy}
-    timeoutMs: 2000
+    apiKey: ${GEMINI_API_KEY}
+    model: ${GEMINI_MODEL:gemini-2.0-flash-exp}
+    temperature: 0.2
+    topP: 0.9
+    maxTokens: 500
 
 genius:
   api:
@@ -114,3 +115,4 @@ logging:
     org.example.apispring.auth: DEBUG
     org.example.apispring.global.exception: TRACE
     org.example.apispring.reco.service.youtube: TRACE
+    org.example.apispring.reco.service.parser: DEBUG  # LLM 파서 로깅
