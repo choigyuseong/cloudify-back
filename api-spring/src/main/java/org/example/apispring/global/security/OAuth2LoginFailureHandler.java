@@ -24,11 +24,15 @@ public class OAuth2LoginFailureHandler implements AuthenticationFailureHandler {
     public void onAuthenticationFailure(HttpServletRequest req, HttpServletResponse res, AuthenticationException ex) throws IOException {
         ErrorCode ec = ErrorCode.UNAUTHORIZED;
 
+        // OAuth 내부에서 발생할 수 있는 에러 분기 처리
         if (ex instanceof org.springframework.security.oauth2.core.OAuth2AuthenticationException oae) {
-            String code = (oae.getError() != null) ? oae.getError().getErrorCode() : null;
-            if ("access_denied".equals(code))               ec = ErrorCode.OAUTH_CONSENT_REQUIRED;
-            else if ("invalid_scope".equals(code))          ec = ErrorCode.OAUTH_SCOPES_MISSING;
-            else if ("invalid_request".equals(code))        ec = ErrorCode.VALIDATION_ERROR;
+            String code = (oae.getError() != null)
+                    ? oae.getError().getErrorCode()
+                    : null;
+
+            if ("access_denied".equals(code)) ec = ErrorCode.OAUTH_CONSENT_REQUIRED;
+            else if ("invalid_scope".equals(code)) ec = ErrorCode.OAUTH_SCOPES_MISSING;
+            else if ("invalid_request".equals(code)) ec = ErrorCode.VALIDATION_ERROR;
             else if ("server_error".equals(code)
                     || "temporarily_unavailable".equals(code)) ec = ErrorCode.INTERNAL_SERVER_ERROR;
         }
