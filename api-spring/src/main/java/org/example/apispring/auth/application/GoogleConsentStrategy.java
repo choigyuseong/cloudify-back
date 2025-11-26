@@ -20,34 +20,31 @@ public class GoogleConsentStrategy {
     private final OAuthCredentialsRepository repo;
 
     public boolean needPrompt(HttpServletRequest req, Set<String> requiredScopes) {
-        // 1) 우리 AT 쿠키로 userId 복원 (없으면 userId = null)
         UUID userId = resolveUserIdFromCookie(req);
 
-        // 2) 유저별 OAuthCredentials 조회
         Optional<OAuthCredentials> credsOpt =
-                (userId != null) ? repo.findByUser_Id(userId) : Optional.empty();
+                (userId != null)
+                        ? repo.findByUser_Id(userId)
+                        : Optional.empty();
 
-        // 2-1) 자격증명 자체가 없음 → 사실상 최초 연결로 간주 → 동의 필요
+        // 1) 최초 연결의 경우
         if (credsOpt.isEmpty()) {
             return true;
         }
 
         OAuthCredentials c = credsOpt.get();
 
-        // 2-2) 우리가 이전에 revoke한 사용자라면 → 다시 권한 받도록 동의 필요
+        // 2) 우리가 revoke 한 사용자의 경우
         if (c.isRevoked()) {
             return true;
         }
 
-        // 2-3) refresh_token 이 아예 저장되어 있지 않으면
-        //      (초기에 offline 동의 실패/정책오류/수동 초기화 등)
+        // 3) RT 가 존재하지 않는 경우
         if (isBlank(c.getRefreshTokenEnc())) {
             return true;
         }
 
-        // 2-4) 스코프 부족 여부 확인
-        //      DB에 저장된 scopes 문자열을 집합으로 변환 후,
-        //      requiredScopes(예: GoogleScopes.REQUIRED) 를 모두 포함하는지 검사
+        // 4) 스코프 추가 동의가 필요한 경우
         Set<String> ownedScopes = splitScopes(c.getScopes());
         if (!ownedScopes.containsAll(requiredScopes)) {
             return true;
