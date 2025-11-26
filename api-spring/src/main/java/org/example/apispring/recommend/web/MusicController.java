@@ -1,17 +1,11 @@
-package org.example.apispring.reco.web;
+package org.example.apispring.recommend.web;
 
-import org.example.apispring.reco.service.youtube.YouTubeService;
+import org.example.apispring.recommend.service.youtube.YouTubeService;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
 
-/**
- * 🎵 MusicController
- * - YouTubeService를 직접 호출하여 음악 검색/상세 조회 제공
- * - /api/music/** 엔드포인트 담당
- * - Cloudify 추천 결과 외부 검증용 (단독 테스트/프론트 미리보기용)
- */
 @RestController
 @RequestMapping("/api/music")
 @CrossOrigin(origins = "*")
@@ -23,11 +17,6 @@ public class MusicController {
         this.yt = yt;
     }
 
-    /**
-     * 🔍 GET /api/music/search
-     * 제목 + 아티스트로 YouTube 검색 후 videoId 반환
-     * 예시: /api/music/search?title=Love+Poem&artist=IU
-     */
     @GetMapping("/search")
     public ResponseEntity<MusicSearchResponse> search(
             @RequestParam String title,

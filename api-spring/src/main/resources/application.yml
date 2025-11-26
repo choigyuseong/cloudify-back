@@ -76,12 +76,7 @@ app:
 
 cloudify:
   youtube:
-    apiKey: ${YOUTUBE_API_KEY}         # 유튜브 Data API v3 검색에 사용할 키 (환경변수로 주입)
-  llm:
-    baseUrl: ${LLM_BASE_URL:https://api.your-llm.example}  # LLM HTTP 엔드포인트 베이스 URL
-    path: /parse                                           # POST로 호출할 경로
-    apiKey: ${LLM_API_KEY}                                # 필요 시
-    timeoutMs: 2000                                        # 2초 타임아웃
+    apiKey: ${YOUTUBE_API_KEY}
 logging:
   level:
     org.example.apispring.youtube.web.YouTubeService: DEBUG
@@ -89,4 +84,4 @@ logging:
 
 genius:
   api:
-    token: ${GENIUS_API_TOKEN}
+    key: ${GENIUS_API_KEY}

@@ -1,4 +1,4 @@
-package org.example.apispring.reco.service;
+package org.example.apispring.recommend.service;
 
 import org.json.JSONObject;
 import org.springframework.beans.factory.annotation.Value;
@@ -6,22 +6,14 @@ import org.springframework.http.*;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestTemplate;
 
-/**
- * 🎵 GeniusService
- * - Genius API를 통해 곡의 앨범 이미지를 조회하는 서비스
- * - title + artist로 검색 → song_art_image_url 반환
- */
 @Service
 public class GeniusService {
 
     private final RestTemplate http = new RestTemplate();
 
-    @Value("${genius.api.token}")
+    @Value("${genius.api.key}")
     private String geniusToken;
 
-    /**
-     * 🎯 Genius API 호출 → 앨범 커버 이미지 URL 반환
-     */
     public String fetchAlbumImage(String title, String artist) {
         try {
             String query = title + " " + artist;

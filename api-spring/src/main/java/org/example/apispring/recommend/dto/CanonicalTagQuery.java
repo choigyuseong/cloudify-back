@@ -1,4 +1,4 @@
-package org.example.apispring.reco.dto;
+package org.example.apispring.recommend.dto;
 
 import com.fasterxml.jackson.annotation.JsonInclude;
 import jakarta.validation.constraints.NotNull;

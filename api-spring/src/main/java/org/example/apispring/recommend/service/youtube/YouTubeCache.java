@@ -1,4 +1,4 @@
-package org.example.apispring.reco.service.youtube;
+package org.example.apispring.recommend.service.youtube;
 
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
@@ -6,11 +6,6 @@ import org.springframework.stereotype.Component;
 import java.util.Map;
 import java.util.concurrent.*;
 
-/**
- * 🧠 YouTubeCache
- * - ConcurrentHashMap 기반 간단 TTL 캐시
- * - YouTubeService의 검색 결과(videoId) 임시 저장
- */
 @Slf4j
 @Component
 public class YouTubeCache {

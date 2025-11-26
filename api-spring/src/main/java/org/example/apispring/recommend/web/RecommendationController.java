@@ -1,10 +1,10 @@
-package org.example.apispring.reco.web;
+package org.example.apispring.recommend.web;
 
-import org.example.apispring.reco.dto.CanonicalTagQuery;
-import org.example.apispring.reco.dto.CanonicalTagQuerySimple; // ✅ 새로 추가
-import org.example.apispring.reco.dto.SongResponse;
-import org.example.apispring.reco.service.RecommendationService;
-import org.example.apispring.reco.service.youtube.YouTubeService;
+import org.example.apispring.recommend.dto.CanonicalTagQuery;
+import org.example.apispring.recommend.dto.CanonicalTagQuerySimple; // ✅ 새로 추가
+import org.example.apispring.recommend.dto.SongResponse;
+import org.example.apispring.recommend.service.RecommendationService;
+import org.example.apispring.recommend.service.youtube.YouTubeService;
 import org.example.apispring.youtube.web.YouTubeIdExtractor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
@@ -19,7 +19,6 @@ import java.util.concurrent.CompletableFuture;
  */
 @RestController
 @RequestMapping("/api/recommend")
-@CrossOrigin(origins = "*")
 public class RecommendationController {
 
     private final RecommendationService recommender;
@@ -30,12 +29,6 @@ public class RecommendationController {
         this.yt = yt;
     }
 
-    /**
-     * 🎯 POST /api/recommend
-     * 입력된 CanonicalTagQuery(JSON) 기반으로 상위 30곡 추천
-     * - 기능 명세서 기준: 항상 30곡 반환
-     * - 기존 LLM 파서 기반 구조 유지
-     */
     @PostMapping
     public ResponseEntity<List<SongResponse>> recommend(@RequestBody CanonicalTagQuery query) {
 
@@ -66,12 +59,6 @@ public class RecommendationController {
         return ResponseEntity.ok(responses);
     }
 
-    /**
-     * ✅ POST /api/recommend/simple
-     * CSV → PostgreSQL 마이그레이션 기반 단순 추천 API
-     * - CanonicalTagQuerySimple(JSON) 기반으로 상위 30곡 반환
-     * - Swagger 및 DB 테스트용
-     */
     @PostMapping("/simple")
     public ResponseEntity<List<SongResponse>> recommendSimple(@RequestBody CanonicalTagQuerySimple query) {
 
@@ -101,11 +88,6 @@ public class RecommendationController {
         return ResponseEntity.ok(responses);
     }
 
-    /**
-     * 🎬 GET /api/recommend/video-id/from-url
-     * 유튜브 공유 URL에서 videoId 추출
-     * 예시: /api/recommend/video-id/from-url?url=https://youtu.be/ATK7gAaZTOM
-     */
     @GetMapping("/video-id/from-url")
     public ResponseEntity<VideoIdResponse> extractFromUrl(@RequestParam String url) {
         String id = YouTubeIdExtractor.extract(url);

@@ -1,6 +1,6 @@
-package org.example.apispring.reco.domain;
+package org.example.apispring.recommend.domain;
 
-import org.example.apispring.reco.domain.TagEnums.*;
+import org.example.apispring.recommend.domain.TagEnums.*;
 
 public record TrackConstraints(
         MOOD mood,
