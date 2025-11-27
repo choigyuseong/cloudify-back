@@ -1,4 +1,4 @@
-package org.example.apispring.reco.domain;
+package org.example.apispring.recommend.domain;
 
 import jakarta.persistence.*;
 import lombok.*;
@@ -20,7 +20,6 @@ public class SongRecord {
     private String title;
     private String artist;
 
-    // ✅ CSV 컬럼 기반 필드 추가
     private String mood;
     private String genre;
     private String activity;

@@ -1,4 +1,4 @@
-package org.example.apispring.reco.domain;
+package org.example.apispring.recommend.domain;
 
 import org.springframework.data.jpa.repository.JpaRepository;
 import java.util.UUID;

@@ -1,12 +1,12 @@
-package org.example.apispring.reco.service;
+package org.example.apispring.recommend.service;
 
 import lombok.RequiredArgsConstructor;
-import org.example.apispring.reco.domain.SongRecord;
-import org.example.apispring.reco.domain.SongRecordRepository;
-import org.example.apispring.reco.dto.CanonicalTagQuery;
-import org.example.apispring.reco.dto.CanonicalTagQuerySimple;
-import org.example.apispring.reco.dto.SongResponse;
-import org.example.apispring.reco.service.youtube.YouTubeService;
+import org.example.apispring.recommend.domain.SongRecord;
+import org.example.apispring.recommend.domain.SongRecordRepository;
+import org.example.apispring.recommend.dto.CanonicalTagQuery;
+import org.example.apispring.recommend.dto.CanonicalTagQuerySimple;
+import org.example.apispring.recommend.dto.SongResponse;
+import org.example.apispring.recommend.service.youtube.YouTubeService;
 import org.springframework.stereotype.Service;
 
 import java.util.*;

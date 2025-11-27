@@ -1,4 +1,4 @@
-package org.example.apispring.reco.service.youtube;
+package org.example.apispring.recommend.service.youtube;
 
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
