@@ -34,7 +34,7 @@ spring:
               - email
               - profile
               - https://www.googleapis.com/auth/youtube
-            redirect-uri: "https://localhost/login/oauth2/code/google"
+            redirect-uri: ${GOOGLE_REDIRECT_URI}
         provider:
           google:
             issuer-uri: https://accounts.google.com
@@ -72,7 +72,7 @@ management:
 
 app:
   front:
-    redirect-url: /swagger-ui/index.html
+    redirect-url: ${FRONT_REDIRECT_URL}
 
 cloudify:
   youtube:
