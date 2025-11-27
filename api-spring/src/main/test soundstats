@@ -1,0 +1,51 @@
+// test/test_soundstats.js
+// 4. SoundStats 모듈 테스트
+
+const spotify = require('../3_spotify');
+const soundstats = require('../4_soundstats');
+const config = require('../1_config');
+
+async function testSoundStats() {
+  try {
+    console.log('\n========================================');
+    console.log('4️⃣  SoundStats 모듈 테스트');
+    console.log('========================================\n');
+    
+    // Spotify에서 곡 검색
+    console.log('1️⃣  Spotify에서 곡 검색 중...');
+    const candidates = await spotify.searchAndGetTrack('Blinding Lights');
+    if (!candidates || candidates.length === 0) {
+      console.log('❌ Spotify 검색 실패');
+      process.exit(1);
+    }
+    
+    const track = candidates[0];
+    console.log(`✅ 검색 성공: ${track.name} - ${track.artists.join(', ')}`);
+    
+    // SoundStats에서 Audio Features 요청
+    console.log('\n2️⃣  SoundStats에서 Audio Features 요청 중...');
+    const trackData = await soundstats.getTrackWithFeatures(track.id, 3);
+    
+    if (trackData && trackData.features) {
+      console.log('✅ Audio Features 획득 성공!');
+      const f = trackData.features;
+      console.log(`   템포: ${f.tempo ? Math.round(f.tempo) : 'N/A'} BPM`);
+      console.log(`   에너지: ${f.energy ? (f.energy * 100).toFixed(0) : 'N/A'}%`);
+      console.log(`   댄스성: ${f.danceability ? (f.danceability * 100).toFixed(0) : 'N/A'}%`);
+    } else {
+      console.log('⚠️  Audio Features 획득 실패');
+    }
+    
+    console.log('\n✅ SoundStats 모듈 테스트 완료!\n');
+    config.pool.end();
+    process.exit(0);
+    
+  } catch (error) {
+    console.error('❌ 테스트 실패:', error.message);
+    console.error('스택:', error.stack);
+    config.pool.end();
+    process.exit(1);
+  }
+}
+
+testSoundStats();
