@@ -1,0 +1,275 @@
+// ==================== 6. 웹 라우트 (routes.js) ====================
+// 모든 웹 라우트
+
+const express = require('express');
+const { sleep } = require('./2_utils');
+const { searchGenreTracks, searchAndGetTrack } = require('./3_spotify');
+const { getTrackWithFeatures } = require('./4_soundstats');
+const { saveTrackComplete, getAllTracks, getStats } = require('./5_database');
+
+const router = express.Router();
+
+// 대시보드
+router.get('/', (req, res) => res.redirect('/dashboard'));
+
+router.get('/dashboard', (req, res) => {
+  res.send(`
+    <!DOCTYPE html>
+    <html>
+    <head>
+      <meta charset="UTF-8">
+      <title>SoundStats Dashboard</title>
+      <style>
+        body { font-family: Arial; max-width: 1200px; margin: 50px auto; padding: 20px; background: #f5f5f5; }
+        .container { background: white; padding: 30px; border-radius: 10px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }
+        h1 { color: #6366f1; }
+        .menu a { display: inline-block; margin: 10px; padding: 15px 25px; background: #6366f1; color: white; text-decoration: none; border-radius: 5px; }
+        .menu a:hover { background: #4f46e5; }
+        .success { background: #d1fae5; padding: 15px; border-radius: 5px; margin: 20px 0; color: #065f46; }
+        .info { background: #e0e7ff; padding: 15px; border-radius: 5px; margin: 20px 0; }
+      </style>
+    </head>
+    <body>
+      <div class="container">
+        <h1>🎵 SoundStats Music Database</h1>
+        <div class="success"><strong>✅ AWS RDS 연결됨!</strong></div>
+        <div class="info">
+          <strong>✨ 기능:</strong>
+          <ul>
+            <li>Spotify: 개선된 장르별 검색</li>
+            <li>SoundStats: Audio Features 분석</li>
+            <li>AWS RDS PostgreSQL: 데이터 저장</li>
+            <li>자동 태그 생성</li>
+          </ul>
+        </div>
+        <div class="menu">
+          <a href="/test">🧪 테스트</a>
+          <a href="/search">🔍 검색</a>
+          <a href="/bulk-genre">📚 장르별</a>
+          <a href="/view-db">📊 DB 조회</a>
+          <a href="/stats">📈 통계</a>
+        </div>
+      </div>
+    </body>
+    </html>
+  `);
+});
+
+// 테스트
+router.get('/test', async (req, res) => {
+  try {
+    console.log('\n========================================');
+    console.log('🧪 테스트 시작');
+    console.log('========================================\n');
+    
+    const candidates = await searchAndGetTrack('Blinding Lights The Weeknd');
+    if (!candidates || candidates.length === 0) throw new Error('검색 결과 없음');
+    
+    const track = candidates[0];
+    const trackWithFeatures = await getTrackWithFeatures(track.id);
+    if (!trackWithFeatures) throw new Error('SoundStats 데이터 없음');
+    
+    const completeTrack = { ...track, ...trackWithFeatures };
+    const result = await saveTrackComplete(completeTrack);
+    
+    if (result.success) {
+      res.send(`
+        <h1 style="color: #6366f1;">✅ 테스트 성공!</h1>
+        <h2>${track.name} - ${track.artists?.join(', ')}</h2>
+        <p><strong>템포:</strong> ${trackWithFeatures.features?.tempo ? Math.round(trackWithFeatures.features.tempo) + ' BPM' : 'N/A'}</p>
+        <a href="/view-db">📊 DB 조회</a> | <a href="/dashboard">← 대시보드</a>
+      `);
+    } else {
+      throw new Error(result.error);
+    }
+  } catch (error) {
+    console.error('\n❌ 테스트 실패:', error.message);
+    console.error('스택:', error.stack);
+    res.send(`<h1>❌ 실패</h1><p>${error.message}</p><a href="/dashboard">← 돌아가기</a>`);
+  }
+});
+
+// 검색
+router.get('/search', (req, res) => {
+  res.send(`
+    <h1>🔍 곡 검색</h1>
+    <form action="/search-result" method="GET">
+      <input type="text" name="q" placeholder="예: Dynamite BTS" required>
+      <button type="submit">검색</button>
+    </form>
+  `);
+});
+
+router.get('/search-result', async (req, res) => {
+  try {
+    const query = req.query.q;
+    console.log(`\n🔍 검색: ${query}\n`);
+    
+    const candidates = await searchAndGetTrack(query);
+    if (!candidates || candidates.length === 0) {
+      return res.send(`<h1>❌ 결과 없음</h1><p>"${query}"를 찾을 수 없습니다.</p><a href="/search">← 다시</a>`);
+    }
+    
+    const track = candidates[0];
+    const trackWithFeatures = await getTrackWithFeatures(track.id);
+    if (!trackWithFeatures) {
+      return res.send(`<h1>⚠️ SoundStats 데이터 없음</h1><p>다른 곡을 시도해보세요.</p><a href="/search">← 다시</a>`);
+    }
+    
+    const completeTrack = { ...track, ...trackWithFeatures };
+    const result = await saveTrackComplete(completeTrack);
+    
+    res.send(`
+      <h1>${result.success ? '✅ 저장 완료' : '❌ 저장 실패'}</h1>
+      <h2>${track.name}</h2>
+      <a href="/search">다시 검색</a> | <a href="/view-db">📊 DB 조회</a>
+    `);
+  } catch (error) {
+    console.error('❌ 검색 실패:', error.message);
+    res.send(`<h1>❌ 실패</h1><p>${error.message}</p><a href="/search">← 다시</a>`);
+  }
+});
+
+// 장르별 일괄 추가
+router.get('/bulk-genre', (req, res) => {
+  res.send(`
+    <h1>📚 장르별 일괄 추가</h1>
+    <form action="/bulk-import" method="POST">
+      <input type="text" name="genre" placeholder="pop, rock, jazz..." required>
+      <button type="submit">20곡 가져오기</button>
+    </form>
+  `);
+});
+
+router.post('/bulk-import', async (req, res) => {
+  const genre = req.body.genre?.trim();
+  
+  if (!genre) {
+    return res.status(400).send('❌ 장르를 입력해주세요');
+  }
+
+  res.writeHead(200, {
+    'Content-Type': 'text/html; charset=utf-8',
+    'Transfer-Encoding': 'chunked'
+  });
+
+  res.write(`<h1>📚 ${genre} 추가 중...</h1><pre>`);
+
+  try {
+    console.log(`\n🎵 "${genre}" 장르 검색 시작\n`);
+    
+    const spotifyTracks = await searchGenreTracks(genre, 20);
+    
+    if (spotifyTracks.length === 0) {
+      res.write('❌ 검색된 곡이 없습니다\n');
+      res.end('</pre>');
+      return;
+    }
+
+    res.write(`✅ ${spotifyTracks.length}개 곡 검색 완료\n\n`);
+
+    let successCount = 0;
+    let failCount = 0;
+
+    for (let i = 0; i < spotifyTracks.length; i++) {
+      const track = spotifyTracks[i];
+      const progress = `[${i + 1}/${spotifyTracks.length}]`;
+      
+      res.write(`${progress} ${track.name}... `);
+
+      try {
+        const trackWithFeatures = await getTrackWithFeatures(track.id, 2);
+        
+        if (trackWithFeatures && trackWithFeatures.features) {
+          const completeTrack = { ...track, ...trackWithFeatures };
+          const result = await saveTrackComplete(completeTrack);
+          
+          if (result.success) {
+            successCount++;
+            res.write('✅\n');
+          } else {
+            failCount++;
+            res.write('❌\n');
+          }
+        } else {
+          failCount++;
+          res.write('⏭️\n');
+        }
+      } catch (error) {
+        failCount++;
+        res.write(`❌\n`);
+      }
+      
+      await sleep(500);
+    }
+
+    res.write(`\n완료: 성공 ${successCount}곡, 실패 ${failCount}곡\n`);
+    res.end('</pre>');
+    
+  } catch (error) {
+    console.error('❌ 오류:', error.message);
+    res.write(`❌ 오류: ${error.message}\n`);
+    res.end('</pre>');
+  }
+});
+
+// DB 조회
+router.get('/view-db', async (req, res) => {
+  try {
+    const tracks = await getAllTracks();
+
+    res.send(`
+      <!DOCTYPE html>
+      <html>
+      <head><meta charset="UTF-8"><title>DB 조회</title>
+      <style>
+        table { border-collapse: collapse; width: 100%; }
+        th, td { border: 1px solid #ddd; padding: 8px; text-align: left; }
+        th { background: #6366f1; color: white; }
+      </style>
+      </head>
+      <body>
+        <h1>📊 저장된 곡 (${tracks.length}개)</h1>
+        <table>
+          <tr>
+            <th>#</th><th>곡명</th><th>아티스트</th><th>장르</th><th>템포</th><th>에너지</th>
+          </tr>
+          ${tracks.map((t, i) => `
+            <tr>
+              <td>${i + 1}</td>
+              <td>${t.name}</td>
+              <td>${t.artists?.join(', ') || '-'}</td>
+              <td>${t.genre || '-'}</td>
+              <td>${t.tempo ? Math.round(t.tempo) : '-'}</td>
+              <td>${t.energy ? (t.energy * 100).toFixed(0) + '%' : '-'}</td>
+            </tr>
+          `).join('')}
+        </table>
+        <br><a href="/dashboard">← 대시보드</a>
+      </body>
+      </html>
+    `);
+  } catch (error) {
+    res.send('DB 조회 실패: ' + error.message);
+  }
+});
+
+// 통계
+router.get('/stats', async (req, res) => {
+  try {
+    const stats = await getStats();
+
+    res.send(`
+      <h1>📈 통계</h1>
+      <p><strong>총 곡:</strong> ${stats.total}</p>
+      <p><strong>장르 종류:</strong> ${stats.genre_count}</p>
+      <p><strong>평균 템포:</strong> ${stats.avg_tempo ? Math.round(stats.avg_tempo) : 0} BPM</p>
+      <p><strong>평균 에너지:</strong> ${stats.avg_energy ? (stats.avg_energy * 100).toFixed(0) + '%' : '0%'}</p>
+      <a href="/dashboard">← 대시보드</a>
+    `);
+  } catch (error) {
+    res.send('통계 실패: ' + error.message);
+  }
+});
+
+module.exports = router;
