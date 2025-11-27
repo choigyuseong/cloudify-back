@@ -1,0 +1,80 @@
+// test/test_database.js
+// 5. 데이터베이스 모듈 테스트
+
+const db = require('../5_database');
+const config = require('../1_config');
+const { generateTags } = require('../2_utils');
+
+async function testDatabase() {
+  try {
+    console.log('\n========================================');
+    console.log('5️⃣  데이터베이스 모듈 테스트');
+    console.log('========================================\n');
+    
+    // 테이블 초기화
+    console.log('1️⃣  테이블 초기화...');
+    await db.initializeTables();
+    console.log('✅ 테이블 초기화 완료');
+    
+    // 테스트 데이터 저장
+    console.log('\n2️⃣  테스트 곡 저장 중...');
+    const testTrack = {
+      id: 'test-track-123',
+      name: 'Test Song',
+      artists: ['Test Artist'],
+      genre: 'test-genre',
+      popularity: 75,
+      duration_ms: 240000,
+      features: {
+        tempo: 120,
+        key: 0,
+        mode: 1,
+        key_confidence: 0.9,
+        energy: 0.7,
+        danceability: 0.8,
+        valence: 0.6,
+        instrumentalness: 0.1,
+        acousticness: 0.2,
+        loudness: -5.5
+      }
+    };
+    
+    const result = await db.saveTrackComplete(testTrack);
+    if (result.success) {
+      console.log('✅ 테스트 곡 저장 성공');
+    } else {
+      console.log('❌ 테스트 곡 저장 실패:', result.error);
+    }
+    
+    // 저장된 곡 조회
+    console.log('\n3️⃣  저장된 곡 조회 중...');
+    const tracks = await db.getAllTracks();
+    console.log(`✅ 총 ${tracks.length}개 곡 조회 성공`);
+    if (tracks.length > 0) {
+      const t = tracks[0];
+      console.log(`   최신곡: ${t.name} - ${t.artists?.join(', ')}`);
+    }
+    
+    // 통계 조회
+    console.log('\n4️⃣  통계 조회 중...');
+    const stats = await db.getStats();
+    if (stats) {
+      console.log(`✅ 통계 조회 성공`);
+      console.log(`   총 곡: ${stats.total}`);
+      console.log(`   장르 수: ${stats.genre_count}`);
+      console.log(`   평균 템포: ${stats.avg_tempo ? Math.round(stats.avg_tempo) : 0} BPM`);
+    }
+    
+    console.log('\n✅ 데이터베이스 모듈 테스트 완료!\n');
+    await config.pool.end();
+    process.exit(0);
+    
+  } catch (error) {
+    console.error('❌ 테스트 실패:', error.message);
+    console.error('스택:', error.stack);
+    await config.pool.end();
+    process.exit(1);
+  }
+}
+
+testDatabase();
