@@ -1,0 +1,107 @@
+// ==================== 4. SoundStats API (soundstats.js) ====================
+// SoundStats에서 Audio Features 가져오기
+
+const axios = require('axios');
+const config = require('./1_config');
+const { sleep } = require('./2_utils');
+
+async function getTrackWithFeatures(spotifyTrackId, maxRetries = 3) {
+  let retryCount = 0;
+  
+  console.log(`   📡 SoundStats 요청 중... (Track ID: ${spotifyTrackId})`);
+  
+  while (retryCount < maxRetries) {
+    try {
+      console.log(`   📡 시도 ${retryCount + 1}/${maxRetries}`);
+      
+      const response = await axios.get(
+        `${config.SOUNDSTAT_BASE_URL}/track/${spotifyTrackId}`,
+        {
+          headers: {
+            'accept': 'application/json',
+            'x-api-key': config.SOUNDSTAT_API_KEY
+          },
+          timeout: 25000,
+          validateStatus: function(status) {
+            return status < 600;
+          }
+        }
+      );
+
+      console.log(`   📡 상태 코드: ${response.status}`);
+
+      // 202: 분석 진행 중
+      if (response.status === 202) {
+        if (retryCount < 2) {
+          console.log(`   ⏳ 분석 진행 중... 10초 대기 (${retryCount + 1}/2)`);
+          await sleep(10000);
+          retryCount++;
+          continue;
+        } else {
+          console.log(`   ⏱️ 분석 타임아웃 - 스킵`);
+          return null;
+        }
+      }
+      
+      // 200: 성공
+      if (response.status === 200) {
+        const trackData = response.data;
+        
+        console.log(`   📋 응답 키:`, Object.keys(trackData));
+        
+        if (trackData && trackData.features && Object.keys(trackData.features).length > 0) {
+          console.log(`   ✅ Audio Features 획득 성공`);
+          return trackData;
+        } else {
+          console.log(`   ⚠️ Audio features 없음`);
+          return null;
+        }
+      }
+      
+      // 404: 곡을 찾을 수 없음
+      if (response.status === 404) {
+        console.log(`   ❌ 404 - SoundStats에서 찾을 수 없음`);
+        return null;
+      }
+      
+      // 429: Rate limit
+      if (response.status === 429) {
+        console.log(`   ⏱️ 429 - Rate limit. 45초 대기...`);
+        await sleep(45000);
+        retryCount++;
+        continue;
+      }
+      
+      // 500: 서버 에러
+      if (response.status === 500) {
+        console.log(`   ❌ 500 - SoundStats 서버 에러`);
+        return null;
+      }
+      
+      console.log(`   ⚠️ 예상치 못한 상태: ${response.status}`);
+      return null;
+
+    } catch (error) {
+      console.error(`   ❌ 요청 실패:`, error.message);
+      console.error(`   에러 코드:`, error.code);
+      
+      if (error.code === 'ECONNABORTED') {
+        console.log(`   ⏱️ 타임아웃 - 스킵`);
+        return null;
+      }
+      
+      if (error.code === 'ENOTFOUND') {
+        console.log(`   ❌ DNS 에러 - 스킵`);
+        return null;
+      }
+      
+      return null;
+    }
+  }
+  
+  return null;
+}
+
+module.exports = {
+  getTrackWithFeatures
+};
