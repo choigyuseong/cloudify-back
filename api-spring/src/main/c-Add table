@@ -1,81 +1,151 @@
-// 테이블 생성
-async function initializeTables() {
-  const client = await pool.connect();
+// ==================== 3. Spotify API (spotify.js) ====================
+// Spotify에서 곡 검색
+
+const axios = require('axios');
+const config = require('./1_config');
+const { sleep } = require('./2_utils');
+
+async function getSpotifyAccessToken() {
   try {
-    await client.query('BEGIN');
+    console.log('🎵 Spotify 토큰 요청 중...');
+    
+    if (config.spotifyAccessToken() && Date.now() < config.spotifyTokenExpiry()) {
+      console.log('✅ 기존 토큰 사용');
+      return config.spotifyAccessToken();
+    }
 
-    await client.query(`
-      CREATE TABLE IF NOT EXISTS users (
-        id TEXT PRIMARY KEY,
-        display_name TEXT,
-        email TEXT,
-        country TEXT,
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-      )
-    `);
+    const response = await axios.post(
+      'https://accounts.spotify.com/api/token',
+      'grant_type=client_credentials',
+      {
+        headers: {
+          'Authorization': 'Basic ' + Buffer.from(
+            config.SPOTIFY_CLIENT_ID + ':' + config.SPOTIFY_CLIENT_SECRET
+          ).toString('base64'),
+          'Content-Type': 'application/x-www-form-urlencoded'
+        },
+        timeout: 10000
+      }
+    );
 
-    await client.query(`
-      CREATE TABLE IF NOT EXISTS tracks (
-        id TEXT PRIMARY KEY,
-        name TEXT,
-        artist_name TEXT,
-        artist_id TEXT,
-        album_name TEXT,
-        album_id TEXT,
-        duration_ms INTEGER,
-        popularity INTEGER,
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-      )
-    `);
-
-    await client.query(`
-      CREATE INDEX IF NOT EXISTS idx_tracks_artist_name ON tracks(artist_name)
-    `);
-    await client.query(`
-      CREATE INDEX IF NOT EXISTS idx_tracks_created_at ON tracks(created_at DESC)
-    `);
-
-    await client.query(`
-      CREATE TABLE IF NOT EXISTS audio_features (
-        track_id TEXT PRIMARY KEY,
-        tempo REAL,
-        energy REAL,
-        valence REAL,
-        danceability REAL,
-        acousticness REAL,
-        instrumentalness REAL,
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        FOREIGN KEY (track_id) REFERENCES tracks(id) ON DELETE CASCADE
-      )
-    `);
-
-    await client.query(`
-      CREATE TABLE IF NOT EXISTS tags (
-        id SERIAL PRIMARY KEY,
-        track_id TEXT,
-        tag_type TEXT,
-        tag_value TEXT,
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        FOREIGN KEY (track_id) REFERENCES tracks(id) ON DELETE CASCADE
-      )
-    `);
-
-    await client.query(`
-      CREATE INDEX IF NOT EXISTS idx_tags_track_id ON tags(track_id)
-    `);
-    await client.query(`
-      CREATE INDEX IF NOT EXISTS idx_tags_tag_type ON tags(tag_type)
-    `);
-
-    await client.query('COMMIT');
-    console.log('✅ PostgreSQL 테이블 생성 완료');
-
+    config.setSpotifyAccessToken(response.data.access_token);
+    config.setSpotifyTokenExpiry(Date.now() + (response.data.expires_in * 1000) - 60000);
+    
+    console.log('✅ Spotify Access Token 발급 완료');
+    return response.data.access_token;
   } catch (error) {
-    await client.query('ROLLBACK');
-    console.error('❌ 테이블 생성 실패:', error);
-  } finally {
-    client.release();
+    console.error('❌ Spotify Token 발급 실패:', error.message);
+    throw error;
   }
 }
 
-initializeTables();
+async function searchGenreTracks(genre, limit = 20) {
+  try {
+    const token = await getSpotifyAccessToken();
+    
+    console.log(`\n🎵 "${genre}" 장르에서 ${limit}곡 검색 중...\n`);
+    
+    const queries = [
+      `genre:"${genre}"`,
+      `genre:${genre}`,
+      `genre:${genre} tag:highly_relevant`
+    ];
+    
+    let response = null;
+    for (const query of queries) {
+      try {
+        response = await axios.get('https://api.spotify.com/v1/search', {
+          params: { 
+            q: query, 
+            type: 'track', 
+            limit: limit,
+            market: 'US'
+          },
+          headers: { 'Authorization': `Bearer ${token}` },
+          timeout: 10000
+        });
+        
+        if (response.data.tracks.items.length > 0) {
+          console.log(`  ✅ "${query}"로 ${response.data.tracks.items.length}개 곡 검색 완료`);
+          break;
+        }
+      } catch (e) {
+        console.error(`  ⚠️ "${query}" 검색 실패:`, e.message);
+        continue;
+      }
+    }
+
+    if (!response || response.data.tracks.items.length === 0) {
+      console.log('  ⚠️ 검색 결과 없음');
+      return [];
+    }
+
+    const uniqueTracks = new Map();
+    response.data.tracks.items
+      .sort((a, b) => b.popularity - a.popularity)
+      .forEach(track => {
+        if (!uniqueTracks.has(track.id)) {
+          uniqueTracks.set(track.id, {
+            id: track.id,
+            name: track.name,
+            artists: track.artists.map(a => a.name),
+            popularity: track.popularity,
+            duration_ms: track.duration_ms,
+            genre: genre,
+            explicit: track.explicit
+          });
+        }
+      });
+
+    const tracks = Array.from(uniqueTracks.values()).slice(0, limit);
+    
+    console.log(`  📊 선별된 곡 정보:`);
+    tracks.forEach((t, i) => {
+      console.log(`    ${i + 1}. ${t.name} - ${t.artists.join(', ')} (인기도: ${t.popularity})`);
+    });
+
+    return tracks;
+  } catch (error) {
+    console.error(`  ❌ 장르 검색 실패:`, error.message);
+    console.error(`  스택:`, error.stack);
+    throw error;
+  }
+}
+
+async function searchAndGetTrack(query) {
+  try {
+    const token = await getSpotifyAccessToken();
+    
+    console.log(`🔍 Spotify에서 검색 중: ${query}`);
+    
+    const response = await axios.get('https://api.spotify.com/v1/search', {
+      params: { q: query, type: 'track', limit: 2 },
+      headers: { 'Authorization': `Bearer ${token}` },
+      timeout: 10000
+    });
+
+    if (response.data.tracks.items.length === 0) {
+      console.log('  ⚠️ 검색 결과 없음');
+      return null;
+    }
+
+    const candidates = response.data.tracks.items.slice(0, 2);
+    
+    console.log(`  📍 상위 ${candidates.length}개 결과:`);
+    candidates.forEach((t, i) => {
+      console.log(`    ${i + 1}. ${t.name} - ${t.artists.map(a => a.name).join(', ')}`);
+    });
+
+    return candidates;
+  } catch (error) {
+    console.error('❌ Spotify 검색 실패:', error.message);
+    console.error('스택:', error.stack);
+    throw error;
+  }
+}
+
+module.exports = {
+  getSpotifyAccessToken,
+  searchGenreTracks,
+  searchAndGetTrack
+};
