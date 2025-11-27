@@ -1,0 +1,81 @@
+// ==================== 7. 메인 서버 (app.js) ====================
+// 분리된 모듈들을 통합하는 메인 파일
+
+const express = require('express');
+const session = require('express-session');
+const config = require('./1_config');
+const { initializeTables } = require('./5_database');
+const routes = require('./6_routes');
+
+const app = express();
+const PORT = 8888;
+
+// ==================== 전역 에러 핸들링 ====================
+process.on('uncaughtException', (err) => {
+  console.error('\n❌❌❌ UNCAUGHT EXCEPTION ❌❌❌');
+  console.error('에러 메시지:', err.message);
+  console.error('스택:', err.stack);
+  console.error('타입:', err.constructor.name);
+  console.error('발생 시간:', new Date().toISOString());
+  console.error('==========================================\n');
+});
+
+process.on('unhandledRejection', (reason, promise) => {
+  console.error('\n❌❌❌ UNHANDLED PROMISE REJECTION ❌❌❌');
+  console.error('Promise:', promise);
+  console.error('이유:', reason);
+  if (reason instanceof Error) {
+    console.error('에러 메시지:', reason.message);
+    console.error('스택:', reason.stack);
+  }
+  console.error('발생 시간:', new Date().toISOString());
+  console.error('==========================================\n');
+});
+
+// ==================== 미들웨어 ====================
+app.use(session({
+  secret: 'soundstat-secret-key-12345',
+  resave: false,
+  saveUninitialized: true,
+  cookie: { maxAge: 3600000 }
+}));
+
+app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
+
+// ==================== 라우트 적용 ====================
+app.use('/', routes);
+
+// ==================== 초기화 ====================
+async function startup() {
+  try {
+    console.log('\n========================================');
+    console.log('🚀 SoundStats 서버 시작');
+    console.log('========================================\n');
+    
+    // DB 테이블 초기화
+    await initializeTables();
+    
+    // 서버 시작
+    app.listen(PORT, () => {
+      console.log(`\n🎵 서버 실행: http://localhost:${PORT}`);
+      console.log(`📍 대시보드: http://localhost:${PORT}/dashboard`);
+      console.log(`📚 장르별 일괄 추가: http://localhost:${PORT}/bulk-genre\n`);
+    });
+    
+  } catch (error) {
+    console.error('❌ 초기화 실패:', error.message);
+    console.error('스택:', error.stack);
+    process.exit(1);
+  }
+}
+
+startup();
+
+// ==================== 종료 처리 ====================
+process.on('SIGINT', async () => {
+  console.log('\n\n🛑 서버 종료 중...');
+  await config.pool.end();
+  console.log('✅ DB 연결 종료');
+  process.exit(0);
+});
