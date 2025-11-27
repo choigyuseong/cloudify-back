@@ -1,0 +1,24 @@
+// test/test_config.js
+// 1. 설정 파일 테스트
+
+const config = require('../1_config');
+
+console.log('\n========================================');
+console.log('1️⃣  설정 파일 테스트');
+console.log('========================================\n');
+
+console.log('✅ Spotify 설정:');
+console.log('   Client ID:', config.SPOTIFY_CLIENT_ID.substring(0, 10) + '...');
+console.log('   Client Secret:', config.SPOTIFY_CLIENT_SECRET.substring(0, 10) + '...');
+
+console.log('\n✅ SoundStats 설정:');
+console.log('   API Key:', config.SOUNDSTAT_API_KEY.substring(0, 10) + '...');
+console.log('   Base URL:', config.SOUNDSTAT_BASE_URL);
+
+console.log('\n✅ PostgreSQL 설정 로드 완료');
+
+setTimeout(() => {
+  config.pool.end();
+  console.log('\n✅ 모든 테스트 완료!\n');
+  process.exit(0);
+}, 2000);
