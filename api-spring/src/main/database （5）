@@ -1,0 +1,249 @@
+// ==================== 5. 데이터베이스 (database.js) ====================
+// DB 초기화, 저장 등 모든 DB 작업
+
+const config = require('./1_config');
+const { generateTags } = require('./2_utils');
+
+async function initializeTables() {
+  const client = await config.pool.connect();
+  try {
+    console.log('📝 테이블 초기화 중...');
+    
+    await client.query('BEGIN');
+
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS artists (
+        id TEXT PRIMARY KEY,
+        name TEXT,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+    console.log('  ✅ artists 테이블 생성');
+
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS tracks (
+        id TEXT PRIMARY KEY,
+        name TEXT,
+        artists TEXT[],
+        genre TEXT,
+        popularity INTEGER,
+        duration_ms INTEGER,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+    console.log('  ✅ tracks 테이블 생성');
+
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS audio_features (
+        track_id TEXT PRIMARY KEY,
+        tempo REAL,
+        key INTEGER,
+        mode INTEGER,
+        key_confidence REAL,
+        energy REAL,
+        danceability REAL,
+        valence REAL,
+        instrumentalness REAL,
+        acousticness REAL,
+        loudness REAL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (track_id) REFERENCES tracks(id) ON DELETE CASCADE
+      )
+    `);
+    console.log('  ✅ audio_features 테이블 생성');
+
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS tags (
+        id SERIAL PRIMARY KEY,
+        track_id TEXT,
+        tag_type TEXT,
+        tag_value TEXT,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (track_id) REFERENCES tracks(id) ON DELETE CASCADE
+      )
+    `);
+    console.log('  ✅ tags 테이블 생성');
+
+    await client.query(`CREATE INDEX IF NOT EXISTS idx_tracks_name ON tracks(name)`);
+    await client.query(`CREATE INDEX IF NOT EXISTS idx_tracks_created_at ON tracks(created_at DESC)`);
+    await client.query(`CREATE INDEX IF NOT EXISTS idx_tracks_genre ON tracks(genre)`);
+    await client.query(`CREATE INDEX IF NOT EXISTS idx_tags_track_id ON tags(track_id)`);
+    console.log('  ✅ 인덱스 생성');
+
+    await client.query('COMMIT');
+    console.log('✅ AWS RDS 테이블 생성 완료\n');
+
+  } catch (error) {
+    await client.query('ROLLBACK');
+    console.error('❌ 테이블 생성 실패:', error.message);
+    console.error('스택:', error.stack);
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
+async function saveTrackComplete(trackData) {
+  let client;
+  
+  try {
+    console.log('👉 DB 연결 시도');
+    client = await config.pool.connect();
+    console.log('✅ DB 연결 성공');
+
+    console.log('\n📝 저장 시작');
+    console.log('Track ID:', trackData?.id);
+    console.log('Track Name:', trackData?.name);
+
+    await client.query('BEGIN');
+    console.log('✅ 트랜잭션 시작');
+
+    if (!trackData || !trackData.id) {
+      throw new Error('유효하지 않은 트랙 데이터');
+    }
+    
+    // 아티스트 저장
+    if (trackData.artists && trackData.artists.length > 0) {
+      console.log(`📌 아티스트 저장 중 (${trackData.artists.length}명)`);
+      
+      for (const artistName of trackData.artists) {
+        const artistId = artistName.toLowerCase().replace(/\s+/g, '-');
+        await client.query(`
+          INSERT INTO artists (id, name) VALUES ($1, $2)
+          ON CONFLICT (id) DO UPDATE SET name = EXCLUDED.name
+        `, [artistId, artistName]);
+        
+        console.log(`   ✅ ${artistName}`);
+      }
+    }
+    
+    // 트랙 저장
+    console.log(`📌 트랙 저장 중`);
+    const trackResult = await client.query(`
+      INSERT INTO tracks (id, name, artists, genre, popularity, duration_ms)
+      VALUES ($1, $2, $3, $4, $5, $6)
+      ON CONFLICT (id) DO UPDATE SET
+        name = EXCLUDED.name,
+        artists = EXCLUDED.artists,
+        genre = EXCLUDED.genre,
+        popularity = EXCLUDED.popularity
+    `, [
+      trackData.id,
+      trackData.name,
+      trackData.artists || [],
+      trackData.genre || null,
+      trackData.popularity || 0,
+      trackData.duration_ms || 0
+    ]);
+    console.log(`   ✅ 완료 (영향 행: ${trackResult.rowCount})`);
+    
+    // Audio Features 저장
+    if (trackData.features) {
+      console.log(`📌 Audio Features 저장 중`);
+      const f = trackData.features;
+      
+      const featureResult = await client.query(`
+        INSERT INTO audio_features (
+          track_id, tempo, key, mode, key_confidence, energy, 
+          danceability, valence, instrumentalness, acousticness, loudness
+        )
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+        ON CONFLICT (track_id) DO UPDATE SET
+          tempo = EXCLUDED.tempo,
+          energy = EXCLUDED.energy,
+          danceability = EXCLUDED.danceability
+      `, [
+        trackData.id,
+        f.tempo || null,
+        f.key || null,
+        f.mode || null,
+        f.key_confidence || null,
+        f.energy || null,
+        f.danceability || null,
+        f.valence || null,
+        f.instrumentalness || null,
+        f.acousticness || null,
+        f.loudness || null
+      ]);
+      
+      console.log(`   ✅ 완료 (영향 행: ${featureResult.rowCount})`);
+      
+      // 태그 생성 및 저장
+      const tags = generateTags(f);
+      if (trackData.genre) tags.push(`장르: ${trackData.genre}`);
+      
+      await client.query(`DELETE FROM tags WHERE track_id = $1`, [trackData.id]);
+      for (const tag of tags) {
+        const parts = tag.split(': ');
+        if (parts.length === 2) {
+          await client.query(
+            `INSERT INTO tags (track_id, tag_type, tag_value) VALUES ($1, $2, $3)`,
+            [trackData.id, parts[0], parts[1]]
+          );
+        }
+      }
+      
+      console.log(`   ✅ 태그 저장 (${tags.length}개)`);
+    }
+    
+    await client.query('COMMIT');
+    console.log('✅ 트랜잭션 커밋 완료\n');
+    return { success: true };
+    
+  } catch (error) {
+    console.error('❌ saveTrackComplete 전체 실패:', error.message);
+    console.error(error.stack);
+    
+    if (client) {
+      try {
+        await client.query('ROLLBACK');
+        console.log('✅ 롤백 완료');
+      } catch (rbErr) {
+        console.error('❌ 롤백 실패:', rbErr.message);
+      }
+    }
+    return { success: false, error: error.message };
+    
+  } finally {
+    if (client) client.release();
+  }
+}
+
+async function getAllTracks() {
+  try {
+    const result = await config.pool.query(`
+      SELECT t.*, af.*
+      FROM tracks t
+      LEFT JOIN audio_features af ON t.id = af.track_id
+      ORDER BY t.created_at DESC
+      LIMIT 100
+    `);
+    return result.rows;
+  } catch (error) {
+    console.error('❌ DB 조회 실패:', error.message);
+    return [];
+  }
+}
+
+async function getStats() {
+  try {
+    const result = await config.pool.query(`
+      SELECT 
+        (SELECT COUNT(*) FROM tracks) as total,
+        (SELECT AVG(tempo) FROM audio_features) as avg_tempo,
+        (SELECT AVG(energy) FROM audio_features) as avg_energy,
+        (SELECT COUNT(DISTINCT genre) FROM tracks WHERE genre IS NOT NULL) as genre_count
+    `);
+    return result.rows[0];
+  } catch (error) {
+    console.error('❌ 통계 조회 실패:', error.message);
+    return null;
+  }
+}
+
+module.exports = {
+  initializeTables,
+  saveTrackComplete,
+  getAllTracks,
+  getStats
+};
