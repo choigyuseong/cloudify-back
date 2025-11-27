@@ -1,0 +1,42 @@
+// test/test_spotify.js
+// 2. Spotify 모듈 테스트
+
+const spotify = require('../3_spotify');
+const config = require('../1_config');
+
+async function testSpotify() {
+  try {
+    console.log('\n========================================');
+    console.log('2️⃣  Spotify 모듈 테스트');
+    console.log('========================================\n');
+    
+    // Spotify 토큰 테스트
+    console.log('1️⃣  Spotify 토큰 발급 테스트');
+    const token = await spotify.getSpotifyAccessToken();
+    console.log('✅ 토큰 발급 성공:', token.substring(0, 20) + '...');
+    
+    // Spotify 검색 테스트
+    console.log('\n2️⃣  Spotify 곡 검색 테스트');
+    const results = await spotify.searchAndGetTrack('Blinding Lights');
+    if (results && results.length > 0) {
+      console.log(`✅ 검색 성공! 상위 ${results.length}개 결과:`);
+      results.forEach((t, i) => {
+        console.log(`   ${i + 1}. ${t.name} - ${t.artists.join(', ')}`);
+      });
+    } else {
+      console.log('⚠️  검색 결과 없음');
+    }
+    
+    console.log('\n✅ Spotify 모듈 테스트 완료!\n');
+    config.pool.end();
+    process.exit(0);
+    
+  } catch (error) {
+    console.error('❌ 테스트 실패:', error.message);
+    console.error('스택:', error.stack);
+    config.pool.end();
+    process.exit(1);
+  }
+}
+
+testSpotify();
