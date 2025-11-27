@@ -1,0 +1,39 @@
+// ==================== 2. 유틸리티 (utils.js) ====================
+// sleep, 태그 생성 등 기본 함수
+
+function sleep(ms) {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+function generateTags(features) {
+  const tags = [];
+  if (!features) return tags;
+  
+  const { tempo, energy, valence, danceability, acousticness } = features;
+
+  if (tempo < 90) tags.push('템포: 느림');
+  else if (tempo <= 120) tags.push('템포: 중간');
+  else tags.push('템포: 빠름');
+
+  if (energy < 0.4) tags.push('에너지: 낮음');
+  else if (energy < 0.7) tags.push('에너지: 중간');
+  else tags.push('에너지: 높음');
+
+  if (energy < 0.40 && valence >= 0.50) tags.push('분위기: 편안함');
+  if (energy < 0.40 && valence < 0.50) tags.push('분위기: 차분함');
+  if (energy >= 0.60 && valence >= 0.60) tags.push('분위기: 신남');
+  if (valence < 0.3) tags.push('분위기: 우울함');
+
+  if (danceability >= 0.7) tags.push('활동: 댄스');
+  if (tempo >= 60 && tempo <= 100 && energy < 0.5) tags.push('활동: 공부/집중');
+  if (tempo > 120 && energy >= 0.7) tags.push('활동: 운동');
+  
+  if (acousticness >= 0.7) tags.push('스타일: 어쿠스틱');
+
+  return tags;
+}
+
+module.exports = {
+  sleep,
+  generateTags
+};
