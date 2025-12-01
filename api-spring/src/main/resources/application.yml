@@ -39,15 +39,10 @@ spring:
               - openid
               - email
               - profile
-<<<<<<< HEAD
               - https://www.googleapis.com/auth/youtube.readonly
             # ✅ baseUrl 자동계산 대신 "고정" (콘솔과 1자도 동일)
             redirect-uri: "http://localhost:8080/login/oauth2/code/{registrationId}"
             client-name: Google
-=======
-              - https://www.googleapis.com/auth/youtube
-            redirect-uri: ${GOOGLE_REDIRECT_URI}
->>>>>>> c0e0d7b8e38009d428738b37315c9116f19884b6
         provider:
           google:
             issuer-uri: https://accounts.google.com
@@ -85,16 +80,11 @@ management:
 
 app:
   front:
-<<<<<<< HEAD
     redirect-url: http://localhost:8080/swagger-ui/index.html
-=======
-    redirect-url: ${FRONT_REDIRECT_URL}
->>>>>>> c0e0d7b8e38009d428738b37315c9116f19884b6
 
 cloudify:
   youtube:
     apiKey: ${YOUTUBE_API_KEY}
-<<<<<<< HEAD
     maxSearchesPerSong: 1
     candidatesPerSearch: 8
     earlyStopScore: 0.90
@@ -126,13 +116,3 @@ logging:
     org.example.apispring.global.exception: TRACE
     org.example.apispring.reco.service.youtube: TRACE
     org.example.apispring.reco.service.parser: DEBUG  # LLM 파서 로깅
-=======
-logging:
-  level:
-    org.example.apispring.youtube.web.YouTubeService: DEBUG
-    org.example.apispring.reco.service.RecommendationService: INFO
-
-genius:
-  api:
-    key: ${GENIUS_API_KEY}
->>>>>>> c0e0d7b8e38009d428738b37315c9116f19884b6
