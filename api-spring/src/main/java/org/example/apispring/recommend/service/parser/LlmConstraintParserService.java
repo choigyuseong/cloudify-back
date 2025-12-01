@@ -163,33 +163,34 @@ public class LlmConstraintParserService implements ConstraintParserService {
      */
     private String buildPrompt(String text, String locale) {
         return String.format("""
-            당신은 음악 추천 시스템의 태그 분류기입니다.
-            사용자의 자연어 입력을 분석하여 아래 형식의 JSON만 출력하세요.
-            
-            허용된 태그:
-            - mood: comfort, tender, calm, uplift, focus, wistful
-            - genre: city_pop, ballad, acoustic, indie, lofi, pop, dance, rnb, edm
-            - activity: study, unwind, night_drive, workout, sleep
-            - branch: calm, uplift
-            - tempo: slow, mid, fast
-            
-            출력 형식:
-            {
-              "tags": [
-                {"id": "mood.comfort"},
-                {"id": "genre.ballad"},
-                {"id": "branch.calm"}
-              ]
-            }
-            
-            규칙:
-            1. 각 타입(mood/genre/activity/branch/tempo)에서 최대 1개만 선택
-            2. 최소 2개 이상의 태그 반환
-            3. 허용된 태그만 사용
-            4. JSON 형식만 출력 (설명 불필요)
-            
-            사용자 입력: "%s"
-            """, text);
+        당신은 음악 추천 시스템의 태그 분류기입니다.
+        사용자의 자연어 입력을 분석하여 아래 형식의 JSON만 출력하세요.
+        
+        허용된 태그:
+        - mood: comfort, tender, calm, uplift, focus, wistful
+        - genre: city_pop, ballad, acoustic, indie, lofi, pop, dance, rnb, edm
+        - activity: study, unwind, night_drive, workout, sleep
+        - branch: calm, uplift
+        - tempo: slow, mid, fast
+        
+        출력 형식 예시:
+        {
+          "tags": [
+            {"id": "mood.comfort"},
+            {"id": "genre.ballad"},
+            {"id": "activity.study"},
+            {"id": "branch.calm"},
+            {"id": "tempo.slow"}
+          ]
+        }
+        
+        규칙:
+        1. 각 타입(mood/genre/activity/branch/tempo)에서 반드시 1개의 태그 선택
+        2. 허용된 태그만 사용
+        3. JSON 형식만 출력 (설명 불필요)
+        
+        사용자 입력: "%s"
+        """, text);
     }
 
     /**

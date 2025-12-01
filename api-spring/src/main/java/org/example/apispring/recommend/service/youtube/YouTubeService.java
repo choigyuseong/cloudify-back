@@ -14,13 +14,16 @@ import org.springframework.web.util.UriComponentsBuilder;
 import jakarta.annotation.PostConstruct;
 import java.nio.charset.StandardCharsets;
 import java.text.Normalizer;
-import java.util.Locale;
+import java.util.*;
 import java.util.concurrent.CompletableFuture;
 
 @Slf4j
 @Service
 public class YouTubeService {
 
+    // ---------------------------------------------------------
+    // 외부 설정값
+    // ---------------------------------------------------------
     @Value("${cloudify.youtube.apiKey:}")
     private String apiKey;
 
@@ -35,12 +38,20 @@ public class YouTubeService {
     private final RestTemplate rest = new RestTemplate();
     private final YouTubeCache cache;
 
+    // ---------------------------------------------------------
+    // 국내 공식 채널 화이트리스트
+    // ---------------------------------------------------------
+    private static final List<String> DOMESTIC_OFFICIAL_CHANNELS = Arrays.asList(
+            "1thek", "원더케이", "stone music", "genie", "kakao", "loen",
+            "bighit", "hybe", "smtown", "jyp", "yg", "starship"
+    );
+
     public YouTubeService(YouTubeCache cache) {
         this.cache = cache;
     }
 
     // ---------------------------------------------------------
-    // UTF-8 강제 인코딩 설정
+    // RestTemplate UTF-8 인코딩 강제 설정
     // ---------------------------------------------------------
     @PostConstruct
     public void init() {
@@ -49,19 +60,18 @@ public class YouTubeService {
                 .filter(c -> c instanceof StringHttpMessageConverter)
                 .forEach(c -> ((StringHttpMessageConverter) c)
                         .setDefaultCharset(StandardCharsets.UTF_8));
-
         log.info("🔥 YouTubeService UTF-8 initialized");
     }
 
     // ---------------------------------------------------------
-    // 비동기 지원
+    // 비동기 검색 지원
     // ---------------------------------------------------------
     public CompletableFuture<String> fetchVideoIdAsync(String title, String artist) {
         return CompletableFuture.supplyAsync(() -> fetchVideoIdBySearch(title, artist));
     }
 
     // ---------------------------------------------------------
-    // 핵심 검색(title + artist)
+    // YouTube 검색 API 호출 및 후보 결과 가져오기
     // ---------------------------------------------------------
     public String fetchVideoIdBySearch(String title, String artist) {
         if (title == null || artist == null) {
@@ -74,9 +84,8 @@ public class YouTubeService {
             return null;
         }
 
+        // 캐시 키 생성 및 조회
         final String cacheKey = (title + "|" + artist).toLowerCase(Locale.ROOT);
-
-        // 캐시 확인
         String cached = cache.get(cacheKey);
         if (cached != null) {
             log.info("⚡ YouTube cache hit: {} -> {}", cacheKey, cached);
@@ -85,7 +94,7 @@ public class YouTubeService {
 
         try {
             // ---------------------------------------------------------
-            // 검색어 조합
+            // 검색 쿼리 구성 (제목 + 아티스트 + official music video)
             // ---------------------------------------------------------
             String query = title + " " + artist + " official music video";
 
@@ -95,18 +104,18 @@ public class YouTubeService {
                     .queryParam("type", "video")
                     .queryParam("maxResults", Math.max(1, candidatesPerSearch))
                     .queryParam("key", apiKey)
-                    .build(false)   // <-- 인코딩 하지 않음!!
+                    .build(false)
                     .toUriString();
 
-            // ---------------------------------------------------------
-            // 요청 로그 전체 출력
-            // ---------------------------------------------------------
-            log.warn("🔑 YOUTUBE API KEY = {}", apiKey);
+            // 요청 URL 로그
             log.warn("🌐 YOUTUBE REQUEST URL = {}", url);
 
+            // ---------------------------------------------------------
+            // API 호출
+            // ---------------------------------------------------------
             String res = rest.getForObject(url, String.class);
 
-            // 응답 RAW 전체 출력
+            // 원본 응답 로그
             log.warn("📩 YOUTUBE RESPONSE RAW = {}", res);
 
             if (res == null) {
@@ -115,7 +124,6 @@ public class YouTubeService {
             }
 
             JSONObject json = new JSONObject(res);
-
             if (json.has("error")) {
                 log.error("❌ YouTube API Error: {}", json.getJSONObject("error").toString());
                 return null;
@@ -127,12 +135,14 @@ public class YouTubeService {
                 return null;
             }
 
+            // ---------------------------------------------------------
+            // 후보 중 최고 점수 영상 선택
+            // ---------------------------------------------------------
             return pickBest(items, title, artist, cacheKey);
 
         } catch (HttpStatusCodeException e) {
             log.error("❌ YouTube HTTP Error {} / {}", e.getStatusCode(), e.getResponseBodyAsString());
             return null;
-
         } catch (Exception e) {
             log.error("❌ YouTube exception: {}", e.toString(), e);
             return null;
@@ -140,73 +150,88 @@ public class YouTubeService {
     }
 
     // ---------------------------------------------------------
-    // 최종 선택 (지니어스 스코어링 적용)
+    // 후보 영상 중 최고 점수 영상 선택
+    // 점수 산정: 아티스트 일치, 제목 유사도, 공식성, LIVE/커버 패널티 등
     // ---------------------------------------------------------
     private String pickBest(JSONArray items, String title, String artist, String cacheKey) {
-        String wantTitle = norm(title);
-        String wantArtist = norm(artist);
+        String wantTitle = normalizeForSearch(title);
+        List<String> wantArtists = splitArtists(artist); // 아티스트 분리 (feat, &, / 등)
 
         JSONObject bestItem = null;
         double bestScore = -999;
 
         for (int i = 0; i < items.length(); i++) {
-
             JSONObject item = items.getJSONObject(i);
             JSONObject snippet = item.getJSONObject("snippet");
 
             String vId = item.getJSONObject("id").optString("videoId", "");
-            String vTitle = norm(snippet.optString("title", ""));
-            String chName = norm(snippet.optString("channelTitle", ""));
+            String vTitle = normalizeForSearch(snippet.optString("title", ""));
+            String chName = normalizeForSearch(snippet.optString("channelTitle", ""));
 
             double s = 0.0;
 
-            // 1) 아티스트 정합성
-            if (!wantArtist.isEmpty()) {
-
-                if (chName.equals(wantArtist) || vTitle.contains(wantArtist))
-                    s += 0.60;
-
-                else if (chName.contains(wantArtist) || wantArtist.contains(chName))
-                    s += 0.45;
-
-                else continue;
+            // ---------------------------------------------------------
+            // 아티스트 정합성 점수
+            // - 정확 일치: +0.60
+            // - 부분 포함: +0.45
+            // ---------------------------------------------------------
+            for (String a : wantArtists) {
+                if (matchArtists(chName, a) || vTitle.contains(a)) s += 0.60;
+                else if (chName.contains(a) || a.contains(chName)) s += 0.45;
             }
 
-            // 2) 제목 유사도
-            if (vTitle.equals(wantTitle))
-                s += 0.30;
+            // ---------------------------------------------------------
+            // 제목 유사도 점수
+            // - 완전 일치: +0.30
+            // - 포함만 되어도: +0.20
+            // ---------------------------------------------------------
+            if (matchTitles(vTitle, wantTitle)) s += 0.30;
+            else if (vTitle.contains(wantTitle)) s += 0.20;
 
-            else if (vTitle.contains(wantTitle))
-                s += 0.20;
-
-            else continue;
-
-            // 3) 노이즈 패널티
             String noisy = snippet.optString("title", "").toLowerCase();
-            boolean isOfficial = chName.contains("official") || chName.contains("vevo") || chName.endsWith("topic");
 
-            // LIVE 관련 처리
-            if (noisy.matches(".*\\blive\\b.*")) {
-                if (isOfficial) {
-                    // 공식 LIVE 영상은 패널티 제거 + 약간 보정
-                    s += 0.05;
-                } else {
-                    s -= 0.40;
+            // ---------------------------------------------------------
+            // 공식 채널 판단
+            // - 영어 official, vevo, topic
+            // - 국내 화이트리스트 채널: +0.15
+            // ---------------------------------------------------------
+            boolean isOfficial = snippet.optString("channelTitle", "").toLowerCase().contains("official")
+                    || snippet.optString("channelTitle", "").toLowerCase().contains("vevo")
+                    || snippet.optString("channelTitle", "").toLowerCase().endsWith("topic");
+
+            for (String c : DOMESTIC_OFFICIAL_CHANNELS) {
+                if (snippet.optString("channelTitle", "").toLowerCase().contains(c.toLowerCase())) {
+                    s += 0.15;
+                    isOfficial = true;
                 }
             }
 
-            // 그 외 노이즈 (항상 강패널티)
-            if (noisy.matches(".*\\b(cover|remix|nightcore|sped up|lyrics|fancam|practice|dance)\\b.*"))
-                s -= 0.40;
+            // ---------------------------------------------------------
+            // LIVE 관련 처리
+            // - 공식 LIVE: 점수 변동 없음
+            // - 비공식 LIVE: -0.40
+            // ---------------------------------------------------------
+            if (noisy.matches(".*\\blive\\b.*")) {
+                if (isOfficial) s += 0.00; // 점수 변동 없음
+                else s -= 0.40;
+            }
 
+            // ---------------------------------------------------------
+            // 노이즈 키워드 패널티
+            // cover, remix, nightcore, sped up, lyrics, fancam, practice, dance
+            // ---------------------------------------------------------
+            if (noisy.matches(".*\\b(cover|remix|nightcore|sped up|lyrics|fancam|practice|dance)\\b.*")) s -= 0.40;
 
+            // ---------------------------------------------------------
+            // 제목/채널 내 official/MV 키워드 보정
+            // ---------------------------------------------------------
+            if (snippet.optString("channelTitle", "").toLowerCase().contains("official") ||
+                    snippet.optString("channelTitle", "").toLowerCase().contains("vevo")) s += 0.20;
+            if (noisy.contains("official") || noisy.contains("mv")) s += 0.20;
 
-            // 공식성 보정
-            if (chName.contains("official") || chName.contains("vevo"))
-                s += 0.20;
-            if (noisy.contains("official") || noisy.contains("mv"))
-                s += 0.20;
-
+            // ---------------------------------------------------------
+            // 최고 점수 후보 선택
+            // ---------------------------------------------------------
             if (s > bestScore) {
                 bestScore = s;
                 bestItem = item;
@@ -227,23 +252,53 @@ public class YouTubeService {
     }
 
     // ---------------------------------------------------------
-    // 정규화
+    // 문자열 정규화
+    // - 대문자→소문자
+    // - 악센트 제거
+    // - 괄호, feat 등 제거
+    // - 특수문자 제거, 공백 정리
     // ---------------------------------------------------------
-    private static String norm(String s) {
+    private static String normalizeForSearch(String s) {
         if (s == null) return "";
         String x = s.toLowerCase(Locale.ROOT);
-
-        x = Normalizer.normalize(x, Normalizer.Form.NFKC);
+        x = Normalizer.normalize(x, Normalizer.Form.NFD).replaceAll("\\p{M}", "");
         x = x.replaceAll("\\(.*?\\)|\\[.*?\\]|\\{.*?\\}", " ");
         x = x.replaceAll("\\b(feat\\.|ft\\.|with)\\b.*", " ");
-        x = x.replaceAll("[^0-9a-zA-Z가-힣ㄱ-ㅎㅏ-ㅣぁ-ゔァ-ヴー一-龯々〆〤\\s]", " ");
+        x = x.replaceAll("[^0-9a-zA-Z가-힣ㄱ-ㅎㅏ-ㅣぁ-ゔァ-ヴー一-龯々〆〤\\s']", " ");
         x = x.replaceAll("\\s+", " ").trim();
-
         return x;
     }
 
     // ---------------------------------------------------------
-    // Helper URL
+    // 아티스트 문자열 분리
+    // - & / , and feat. 등 구분
+    // - normalizeForSearch 적용
+    // ---------------------------------------------------------
+    private List<String> splitArtists(String artist) {
+        if (artist == null) return Collections.emptyList();
+        return Arrays.stream(artist.split("\\s*(?:&|/|,|and|feat\\.?|ft\\.?)\\s*"))
+                .map(String::trim)
+                .filter(a -> !a.isEmpty())
+                .map(YouTubeService::normalizeForSearch)
+                .toList();
+    }
+
+    // ---------------------------------------------------------
+    // 제목 비교
+    // ---------------------------------------------------------
+    private boolean matchTitles(String queryTitle, String targetTitle) {
+        return normalizeForSearch(queryTitle).equals(normalizeForSearch(targetTitle));
+    }
+
+    // ---------------------------------------------------------
+    // 아티스트 비교
+    // ---------------------------------------------------------
+    private boolean matchArtists(String queryArtist, String targetArtist) {
+        return normalizeForSearch(queryArtist).equals(normalizeForSearch(targetArtist));
+    }
+
+    // ---------------------------------------------------------
+    // YouTube URL 헬퍼
     // ---------------------------------------------------------
     public static String watchUrl(String id) {
         return id == null ? null : "https://www.youtube.com/watch?v=" + id;

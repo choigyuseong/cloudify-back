@@ -6,6 +6,7 @@ import org.example.apispring.recommend.domain.SongRecordRepository;
 import org.example.apispring.recommend.dto.CanonicalTagQuery;
 import org.example.apispring.recommend.dto.CanonicalTagQuerySimple;
 import org.example.apispring.recommend.dto.SongResponse;
+import org.example.apispring.recommend.service.youtube.YouTubeService;
 import org.springframework.stereotype.Service;
 
 import java.util.*;
@@ -14,6 +15,8 @@ import java.util.stream.Collectors;
 /**
  * ✅ 외부 API 호출 없음: 점수 계산만 수행
  * - YouTube/Genius 호출은 컨트롤러에서 상위 N개에 한해 수행
+ * - 공식 영상/공식 음원 보정 α 적용
+ * - 국내 공식 채널은 contains 기반으로 유연 체크
  */
 @Service
 @RequiredArgsConstructor
@@ -28,6 +31,13 @@ public class RecommendationService {
             "BRANCH", 0.1,
             "TEMPO", 0.05
     );
+
+    private static final double OFFICIAL_BONUS = 0.05; // α 값
+    private static final Set<String> DOMESTIC_OFFICIAL_CHANNELS = Set.of(
+            "WonderK", "SMTOWN", "JYP Entertainment" // 필요시 추가
+    );
+
+    private final YouTubeService youTubeService;
 
     // ───────────── LLM 기반 ─────────────
     public List<SongResponse> recommend(CanonicalTagQuery query) {
@@ -44,6 +54,25 @@ public class RecommendationService {
                 if (id.contains("branch") && id.contains(s.getBranch().toLowerCase(Locale.ROOT))) score += WEIGHTS.get("BRANCH");
                 if (id.contains("tempo") && id.contains(s.getTempo().toLowerCase(Locale.ROOT)))   score += WEIGHTS.get("TEMPO");
             }
+
+            // ───────────── 공식 영상/공식 음원 보정 ─────────────
+            if (Boolean.TRUE.equals(s.getYoutubeVerified())) {
+                score += OFFICIAL_BONUS; // YouTube verified
+            }
+
+            if (s.getYoutubeChannel() != null) {
+                for (String ch : DOMESTIC_OFFICIAL_CHANNELS) {
+                    if (s.getYoutubeChannel().toLowerCase().contains(ch.toLowerCase())) {
+                        score += OFFICIAL_BONUS; // 국내 공식 채널
+                        break;
+                    }
+                }
+            }
+
+            if (s.getGeniusUploader() != null && s.getGeniusUploader().equalsIgnoreCase("Genius")) {
+                score += OFFICIAL_BONUS; // Genius 공식 음원
+            }
+
             scored.put(s, score);
         }
 
@@ -72,6 +101,25 @@ public class RecommendationService {
             if (query.activity() != null && query.activity().equalsIgnoreCase(s.getActivity())) score += WEIGHTS.get("ACTIVITY");
             if (query.branch() != null && query.branch().equalsIgnoreCase(s.getBranch()))    score += WEIGHTS.get("BRANCH");
             if (query.tempo() != null && query.tempo().equalsIgnoreCase(s.getTempo()))       score += WEIGHTS.get("TEMPO");
+
+            // ───────────── 공식 영상/공식 음원 보정 ─────────────
+            if (Boolean.TRUE.equals(s.getYoutubeVerified())) {
+                score += OFFICIAL_BONUS; // YouTube verified
+            }
+
+            if (s.getYoutubeChannel() != null) {
+                for (String ch : DOMESTIC_OFFICIAL_CHANNELS) {
+                    if (s.getYoutubeChannel().toLowerCase().contains(ch.toLowerCase())) {
+                        score += OFFICIAL_BONUS; // 국내 공식 채널
+                        break;
+                    }
+                }
+            }
+
+            if (s.getGeniusUploader() != null && s.getGeniusUploader().equalsIgnoreCase("Genius")) {
+                score += OFFICIAL_BONUS; // Genius 공식 음원
+            }
+
             scored.put(s, score);
         }
 
