@@ -8,29 +8,23 @@ import org.springframework.http.*;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestTemplate;
 
-<<<<<<< HEAD:api-spring/src/main/java/org/example/apispring/reco/service/GeniusService.java
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.util.Locale;
 
 @Slf4j
-=======
->>>>>>> c0e0d7b8e38009d428738b37315c9116f19884b6:api-spring/src/main/java/org/example/apispring/recommend/service/GeniusService.java
 @Service
 public class GeniusService {
 
     private final RestTemplate http = new RestTemplate();
 
-    @Value("${genius.api.key}")
+    @Value("${genius.api.token}")
     private String geniusToken;
 
-<<<<<<< HEAD:api-spring/src/main/java/org/example/apispring/reco/service/GeniusService.java
     /**
      * 기존 호출과의 호환용(예산 가드 없이 호출).
      * 정확한 아트워크 URL을 반환(없으면 null).
      */
-=======
->>>>>>> c0e0d7b8e38009d428738b37315c9116f19884b6:api-spring/src/main/java/org/example/apispring/recommend/service/GeniusService.java
     public String fetchAlbumImage(String title, String artist) {
         return fetchAlbumImage(title, artist, null);
     }
@@ -39,7 +33,7 @@ public class GeniusService {
      * 요청 예산 가드까지 포함한 버전(폭주 방지용).
      * RequestBudget가 null이면 예산 가드 없이 동작.
      */
-    public String fetchAlbumImage(String title, String artist, org.example.apispring.reco.service.common.RequestBudget budget) {
+    public String fetchAlbumImage(String title, String artist, org.example.apispring.recommend.service.common.RequestBudget budget) {
         try {
             if (budget != null && !budget.takeOne()) {
                 // 예산 소진 → 외부 호출 생략

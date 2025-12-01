@@ -20,6 +20,7 @@ public class SongRecord {
     private String title;
     private String artist;
 
+    // ✅ CSV 컬럼 기반 필드 추가
     private String mood;
     private String genre;
     private String activity;

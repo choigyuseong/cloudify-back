@@ -1,4 +1,4 @@
-package org.example.apispring.reco.service.common;
+package org.example.apispring.recommend.service.common;
 
 import java.util.concurrent.atomic.AtomicInteger;
 

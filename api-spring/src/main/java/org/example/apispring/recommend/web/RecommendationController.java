@@ -1,19 +1,11 @@
 package org.example.apispring.recommend.web;
 
-<<<<<<< HEAD:api-spring/src/main/java/org/example/apispring/reco/web/RecommendationController.java
-import org.example.apispring.reco.dto.CanonicalTagQuery;
-import org.example.apispring.reco.dto.CanonicalTagQuerySimple;
-import org.example.apispring.reco.dto.SongResponse;
-import org.example.apispring.reco.service.RecommendationService;
-import org.example.apispring.reco.service.GeniusService;
-import org.example.apispring.reco.service.youtube.YouTubeService;
-=======
 import org.example.apispring.recommend.dto.CanonicalTagQuery;
-import org.example.apispring.recommend.dto.CanonicalTagQuerySimple; // ✅ 새로 추가
+import org.example.apispring.recommend.dto.CanonicalTagQuerySimple;
 import org.example.apispring.recommend.dto.SongResponse;
 import org.example.apispring.recommend.service.RecommendationService;
+import org.example.apispring.recommend.service.GeniusService;
 import org.example.apispring.recommend.service.youtube.YouTubeService;
->>>>>>> c0e0d7b8e38009d428738b37315c9116f19884b6:api-spring/src/main/java/org/example/apispring/recommend/web/RecommendationController.java
 import org.example.apispring.youtube.web.YouTubeIdExtractor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
@@ -24,6 +16,7 @@ import java.util.concurrent.CompletableFuture;
 
 @RestController
 @RequestMapping("/api/recommend")
+@CrossOrigin(origins = "*")
 public class RecommendationController {
 
     private final RecommendationService recommender;
@@ -40,15 +33,12 @@ public class RecommendationController {
         this.genius = genius;
     }
 
-<<<<<<< HEAD:api-spring/src/main/java/org/example/apispring/reco/web/RecommendationController.java
     /**
      * 🎯 POST /api/recommend
      * - CanonicalTagQuery 기반 추천
      * - limit 미지정 시 기본 5개만 반환(정확도 점검/쿼터 절약)
      * - YouTube/Genius 보강도 상위 N개에만 수행
      */
-=======
->>>>>>> c0e0d7b8e38009d428738b37315c9116f19884b6:api-spring/src/main/java/org/example/apispring/recommend/web/RecommendationController.java
     @PostMapping
     public ResponseEntity<List<SongResponse>> recommend(
             @RequestBody CanonicalTagQuery query,
@@ -88,15 +78,12 @@ public class RecommendationController {
         return ResponseEntity.ok(responses);
     }
 
-<<<<<<< HEAD:api-spring/src/main/java/org/example/apispring/reco/web/RecommendationController.java
     /**
      * ✅ POST /api/recommend/simple
      * - CanonicalTagQuerySimple 기반 추천
      * - limit 미지정 시 기본 5개
      * - 상위 N개만 YouTube/Genius 조회(동기)
      */
-=======
->>>>>>> c0e0d7b8e38009d428738b37315c9116f19884b6:api-spring/src/main/java/org/example/apispring/recommend/web/RecommendationController.java
     @PostMapping("/simple")
     public ResponseEntity<List<SongResponse>> recommendSimple(
             @RequestBody CanonicalTagQuerySimple query,
@@ -132,10 +119,7 @@ public class RecommendationController {
         return ResponseEntity.ok(responses);
     }
 
-<<<<<<< HEAD:api-spring/src/main/java/org/example/apispring/reco/web/RecommendationController.java
     /** 🎬 GET /api/recommend/video-id/from-url?url=... */
-=======
->>>>>>> c0e0d7b8e38009d428738b37315c9116f19884b6:api-spring/src/main/java/org/example/apispring/recommend/web/RecommendationController.java
     @GetMapping("/video-id/from-url")
     public ResponseEntity<VideoIdResponse> extractFromUrl(@RequestParam String url) {
         String id = YouTubeIdExtractor.extract(url);

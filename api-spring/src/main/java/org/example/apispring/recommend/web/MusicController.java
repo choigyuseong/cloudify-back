@@ -1,33 +1,25 @@
 package org.example.apispring.recommend.web;
 
-<<<<<<< HEAD:api-spring/src/main/java/org/example/apispring/reco/web/MusicController.java
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.example.apispring.reco.dto.CanonicalTagQuery;
-import org.example.apispring.reco.dto.SongResponse;
-import org.example.apispring.reco.service.RecommendationService;
-import org.example.apispring.reco.service.parser.ConstraintParserService;
-import org.example.apispring.reco.service.GeniusService;
-import org.example.apispring.reco.service.youtube.YouTubeService;
-import org.example.apispring.youtube.web.YouTubeIdExtractor;
-=======
+import org.example.apispring.recommend.dto.CanonicalTagQuery;
+import org.example.apispring.recommend.dto.SongResponse;
+import org.example.apispring.recommend.service.RecommendationService;
+import org.example.apispring.recommend.service.parser.ConstraintParserService;
+import org.example.apispring.recommend.service.GeniusService;
 import org.example.apispring.recommend.service.youtube.YouTubeService;
->>>>>>> c0e0d7b8e38009d428738b37315c9116f19884b6:api-spring/src/main/java/org/example/apispring/recommend/web/MusicController.java
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
 
-<<<<<<< HEAD:api-spring/src/main/java/org/example/apispring/reco/web/MusicController.java
 /**
  * 🎵 음악 추천 API (LLM 기반)
  * - POST /api/music/recommend-by-text: 자연어 입력 → LLM 파싱 → 추천
  * - GET /api/music/search: 제목+아티스트 검색
  */
 @Slf4j
-=======
->>>>>>> c0e0d7b8e38009d428738b37315c9116f19884b6:api-spring/src/main/java/org/example/apispring/recommend/web/MusicController.java
 @RestController
 @RequestMapping("/api/music")
 @RequiredArgsConstructor
@@ -114,7 +106,6 @@ public class MusicController {
         }
     }
 
-<<<<<<< HEAD:api-spring/src/main/java/org/example/apispring/reco/web/MusicController.java
     /**
      * 🔍 GET /api/music/search
      *
@@ -126,8 +117,6 @@ public class MusicController {
      *
      * 응답: YouTube 링크 정보
      */
-=======
->>>>>>> c0e0d7b8e38009d428738b37315c9116f19884b6:api-spring/src/main/java/org/example/apispring/recommend/web/MusicController.java
     @GetMapping("/search")
     public ResponseEntity<VideoIdResponse> search(
             @RequestParam String title,
