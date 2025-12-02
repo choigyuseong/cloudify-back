@@ -1,14 +1,12 @@
 server:
-  port: ${PORT:8080}
+  port: ${PORT}
   servlet:
     session:
       cookie:
-        same-site: Lax   # ✅ 로컬 HTTP에서 안전
+        secure: ${COOKIE_SECURE}
+        same-site: ${COOKIE_SAMESITE}
 
 spring:
-  config:
-    import: optional:file:.env[.properties]
-
   datasource:
     url: ${DB_URL}
     username: ${DB_USER}
@@ -25,8 +23,8 @@ spring:
 
   data:
     redis:
-      host: ${REDIS_HOST:localhost}
-      port: ${REDIS_PORT:6379}
+      host: ${REDIS_HOST}
+      port: ${REDIS_PORT}
 
   security:
     oauth2:
@@ -40,8 +38,7 @@ spring:
               - email
               - profile
               - https://www.googleapis.com/auth/youtube.readonly
-            # ✅ baseUrl 자동계산 대신 "고정" (콘솔과 1자도 동일)
-            redirect-uri: "http://localhost:8080/login/oauth2/code/{registrationId}"
+            redirect-uri: ${GOOGLE_REDIRECT_URI}
             client-name: Google
         provider:
           google:
@@ -49,11 +46,11 @@ spring:
 
 security:
   cookie:
-    secure: ${COOKIE_SECURE:false}
-    samesite: ${COOKIE_SAMESITE:Lax}
+    secure: ${COOKIE_SECURE}
+    samesite: ${COOKIE_SAMESITE}
 
 cors:
-  allowed-origins: ${CORS_ALLOWED_ORIGINS:http://localhost:8080}
+  allowed-origins: ${CORS_ALLOWED_ORIGINS}
   allowed-headers: "Content-Type,Authorization,X-CSRF-Token"
   allowed-methods: "GET,POST,PUT,DELETE,PATCH,OPTIONS"
   allow-credentials: true
@@ -61,9 +58,9 @@ cors:
 jwt:
   secret: ${JWT_SECRET}
   issuer: ${JWT_ISSUER}
-  access-token-expiration: ${JWT_ACCESS_TOKEN_EXPIRATION:900000}
-  refresh-token-expiration: ${JWT_REFRESH_TOKEN_EXPIRATION:1209600000}
-  allowed-clock-skew-seconds: ${JWT_ALLOWED_CLOCK_SKEW_SECONDS:30}
+  access-token-expiration: ${JWT_ACCESS_TOKEN_EXPIRATION}
+  refresh-token-expiration: ${JWT_REFRESH_TOKEN_EXPIRATION}
+  allowed-clock-skew-seconds: ${JWT_ALLOWED_CLOCK_SKEW_SECONDS}
 
 crypto:
   master-key-base64: ${CRYPTO_MASTER_KEY}
@@ -80,7 +77,7 @@ management:
 
 app:
   front:
-    redirect-url: http://localhost:8080/swagger-ui/index.html
+    redirect-url: ${FRONT_REDIRECT_URL}
 
 cloudify:
   youtube:
@@ -93,7 +90,7 @@ cloudify:
       maxConcurrent: 4
     cacheTtlSeconds: 2592000
   limits:
-    maxExternalCallsPerRequest: 40   # ✅ /api/recommend 1회에 외부 호출 총량 상한
+    maxExternalCallsPerRequest: 40
 
   llm:
     apiKey: ${GEMINI_API_KEY}
@@ -115,4 +112,4 @@ logging:
     org.example.apispring.auth: DEBUG
     org.example.apispring.global.exception: TRACE
     org.example.apispring.reco.service.youtube: TRACE
-    org.example.apispring.reco.service.parser: DEBUG  # LLM 파서 로깅
+    org.example.apispring.reco.service.parser: DEBUG
