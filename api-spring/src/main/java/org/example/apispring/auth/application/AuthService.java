@@ -36,18 +36,15 @@ public class AuthService {
         UUID userId = claims.userId();
         String jti  = claims.jti();
 
-        // jti 재사용 방지
         if (!rtJtiStore.matches(userId, jti)) {
             rtJtiStore.clear(userId);
             throw new BusinessException(ErrorCode.JWT_INVALID);
         }
 
-        // 새 토큰 발급
         String newAt = jwt.createAccessToken(userId);
         String newRt = jwt.createRefreshToken(userId);
         TokenClaims newRtClaims = jwt.decodeRefresh(newRt);
 
-        // jti 갱신
         rtJtiStore.save(
                 userId,
                 newRtClaims.jti(),
@@ -66,13 +63,11 @@ public class AuthService {
         }
     }
 
-    // 회원 탈퇴와 같은 개념 , OAuth 와 웹에서 모두 로그아웃
     public void disconnectAccount(UUID userId) {
         credentialService.disconnect(userId);
         logout(userId);
     }
 
-    // OAuth 성공하면 사용
     public TokenPair issueTokens(UUID userId) {
         String at = jwt.createAccessToken(userId);
         String rt = jwt.createRefreshToken(userId);
