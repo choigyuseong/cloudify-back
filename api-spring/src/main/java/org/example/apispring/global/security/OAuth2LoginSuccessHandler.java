@@ -6,8 +6,6 @@ import lombok.RequiredArgsConstructor;
 import org.example.apispring.auth.application.AuthService;
 import org.example.apispring.auth.application.OAuthCredentialService;
 import org.example.apispring.global.security.jwt.CookieUtil;
-import org.example.apispring.global.security.jwt.JwtTokenProvider;
-import org.example.apispring.global.security.jwt.RefreshTokenJtiStore;
 import org.example.apispring.user.application.UserService;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.security.core.Authentication;
@@ -19,7 +17,6 @@ import org.springframework.security.web.authentication.AuthenticationSuccessHand
 import org.springframework.stereotype.Component;
 
 import java.io.IOException;
-import java.time.Duration;
 
 @Component
 @RequiredArgsConstructor

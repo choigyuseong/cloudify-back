@@ -24,7 +24,6 @@ public class OAuth2LoginFailureHandler implements AuthenticationFailureHandler {
     public void onAuthenticationFailure(HttpServletRequest req, HttpServletResponse res, AuthenticationException ex) throws IOException {
         ErrorCode ec = ErrorCode.UNAUTHORIZED;
 
-        // OAuth 내부에서 발생할 수 있는 에러 분기 처리
         if (ex instanceof org.springframework.security.oauth2.core.OAuth2AuthenticationException oae) {
             String code = (oae.getError() != null)
                     ? oae.getError().getErrorCode()
