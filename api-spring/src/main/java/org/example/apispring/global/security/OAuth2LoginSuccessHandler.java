@@ -34,7 +34,6 @@ public class OAuth2LoginSuccessHandler implements AuthenticationSuccessHandler {
     @Override
     public void onAuthenticationSuccess(HttpServletRequest req, HttpServletResponse res, Authentication auth)
             throws IOException {
-        // 구글로부터 프로필 추출해서 유저 upsert
         var oUser = (OAuth2User) auth.getPrincipal();
         String sub = oUser.getAttribute("sub");
         String email = oUser.getAttribute("email");
@@ -43,7 +42,6 @@ public class OAuth2LoginSuccessHandler implements AuthenticationSuccessHandler {
 
         var user = userService.upsertByGoogle(sub, email, name, pictureUrl);
 
-        // 누가 어떤 클라이언트로 인증했는가를 담은 인증 토큰 , 이걸 통해서 만들어지는 client 에 AT / RT 가 담김
         var oauthToken = (OAuth2AuthenticationToken) auth;
 
         String regId = oauthToken.getAuthorizedClientRegistrationId();

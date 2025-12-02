@@ -28,10 +28,10 @@ public class CookieUtil {
                 .append("Path=").append(path).append("; ")
                 .append("HttpOnly; ");
 
-        // ✅ Secure 옵션은 환경에 따라 추가
         if (secure) sb.append("Secure; ");
 
-        sb.append("SameSite=").append(sameSite).append("; ")
+        sb.append("SameSite=")
+                .append(sameSite).append("; ")
                 .append("Max-Age=").append(maxAge);
 
         if (domain != null && !domain.isBlank()) sb.append("; Domain=").append(domain);

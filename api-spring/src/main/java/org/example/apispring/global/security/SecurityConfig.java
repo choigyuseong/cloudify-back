@@ -26,13 +26,11 @@ public class SecurityConfig {
     private final OAuth2LoginSuccessHandler oAuth2LoginSuccessHandler;
     private final OAuth2LoginFailureHandler oAuth2LoginFailureHandler;
 
-    // ✅ OAuth2 AuthorizationRequest를 "세션"에 저장/복구 → state 검증 정상화
     @Bean
     AuthorizationRequestRepository<OAuth2AuthorizationRequest> authorizationRequestRepository() {
         return new HttpSessionOAuth2AuthorizationRequestRepository();
     }
 
-    // ✅ RestTemplate Bean 등록
     @Bean
     public RestTemplate restTemplate() {
         return new RestTemplate();
@@ -60,10 +58,10 @@ public class SecurityConfig {
                         .authenticationEntryPoint((req, res, e) -> {
                             String uri = req.getRequestURI();
                             if (uri.startsWith("/api/")) {
-                                entryPoint.commence(req, res, e); // API → JSON 401
+                                entryPoint.commence(req, res, e);
                             } else {
                                 new LoginUrlAuthenticationEntryPoint("/oauth2/authorization/google")
-                                        .commence(req, res, e); // 웹 → 구글 로그인 시작
+                                        .commence(req, res, e);
                             }
                         })
                         .accessDeniedHandler(accessDeniedHandler)
@@ -75,10 +73,9 @@ public class SecurityConfig {
                         )
                         .successHandler(oAuth2LoginSuccessHandler)
                         .failureHandler(oAuth2LoginFailureHandler)
-                        .loginPage("/oauth2/authorization/google") // ✅ 시작 URL 통일
+                        .loginPage("/oauth2/authorization/google")
                 );
 
-        // ✅ JWT 필터 삽입
         http.addFilterBefore(jwtAuthFilter, UsernamePasswordAuthenticationFilter.class);
         return http.build();
     }
