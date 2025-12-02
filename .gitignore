@@ -60,6 +60,8 @@ pnpm-debug.log*
 # -----------------------------
 # Env / secrets
 # -----------------------------
+**/.env
+*.env
 deploy/.env
 
 # Spring local overrides (do NOT ignore application.yml/properties)
@@ -82,3 +84,5 @@ dist/
 nbdist/
 nbproject/private/
 
+# exclude CookieUtil (local only)
+src/main/java/org/example/apispring/global/security/jwt/CookieUtil.java

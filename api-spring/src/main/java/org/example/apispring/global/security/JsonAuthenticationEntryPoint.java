@@ -33,7 +33,6 @@ public class JsonAuthenticationEntryPoint implements AuthenticationEntryPoint {
         om.writeValue(res.getWriter(), ErrorResponse.of(ec));
     }
 
-    // 예외들 분기 처리
     private ErrorCode mapJwtError(Throwable t) {
         if (t instanceof io.jsonwebtoken.ExpiredJwtException) return ErrorCode.JWT_EXPIRED;
         if (t instanceof io.jsonwebtoken.JwtException || t instanceof IllegalArgumentException)

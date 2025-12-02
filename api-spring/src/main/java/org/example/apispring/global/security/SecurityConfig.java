@@ -7,9 +7,13 @@ import org.springframework.context.annotation.Configuration;
 import org.springframework.security.config.Customizer;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.http.SessionCreationPolicy;
+import org.springframework.security.oauth2.client.web.AuthorizationRequestRepository;
+import org.springframework.security.oauth2.client.web.HttpSessionOAuth2AuthorizationRequestRepository;
+import org.springframework.security.oauth2.core.endpoint.OAuth2AuthorizationRequest;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.LoginUrlAuthenticationEntryPoint;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
+import org.springframework.web.client.RestTemplate;
 
 @Configuration
 @RequiredArgsConstructor
@@ -23,6 +27,16 @@ public class SecurityConfig {
     private final OAuth2LoginFailureHandler oAuth2LoginFailureHandler;
 
     @Bean
+    AuthorizationRequestRepository<OAuth2AuthorizationRequest> authorizationRequestRepository() {
+        return new HttpSessionOAuth2AuthorizationRequestRepository();
+    }
+
+    @Bean
+    public RestTemplate restTemplate() {
+        return new RestTemplate();
+    }
+
+    @Bean
     SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
         http
                 .csrf(csrf -> csrf.disable())
@@ -30,12 +44,12 @@ public class SecurityConfig {
                 .sessionManagement(sm -> sm.sessionCreationPolicy(SessionCreationPolicy.IF_REQUIRED))
                 .authorizeHttpRequests(auth -> auth
                         .requestMatchers(
-                                "/",
-                                "/error",
+                                "/", "/error",
                                 "/actuator/health",
                                 "/v3/api-docs/**",
                                 "/swagger-ui/**", "/swagger-ui.html",
-                                "/oauth2/**", "/login/oauth2/**",
+                                "/login/**",
+                                "/oauth2/**",
                                 "/api/auth/refresh"
                         ).permitAll()
                         .anyRequest().authenticated()
@@ -44,10 +58,8 @@ public class SecurityConfig {
                         .authenticationEntryPoint((req, res, e) -> {
                             String uri = req.getRequestURI();
                             if (uri.startsWith("/api/")) {
-                                // API → 401 JSON
                                 entryPoint.commence(req, res, e);
                             } else {
-                                // 웹 라우트 → 구글 인가로
                                 new LoginUrlAuthenticationEntryPoint("/oauth2/authorization/google")
                                         .commence(req, res, e);
                             }
@@ -55,9 +67,13 @@ public class SecurityConfig {
                         .accessDeniedHandler(accessDeniedHandler)
                 )
                 .oauth2Login(oauth -> oauth
-                        .authorizationEndpoint(ep -> ep.authorizationRequestResolver(googleOAuth2RequestResolver))
+                        .authorizationEndpoint(ep -> ep
+                                .authorizationRequestResolver(googleOAuth2RequestResolver)
+                                .authorizationRequestRepository(authorizationRequestRepository()) // ✅ 추가
+                        )
                         .successHandler(oAuth2LoginSuccessHandler)
                         .failureHandler(oAuth2LoginFailureHandler)
+                        .loginPage("/oauth2/authorization/google")
                 );
 
         http.addFilterBefore(jwtAuthFilter, UsernamePasswordAuthenticationFilter.class);
