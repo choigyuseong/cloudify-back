@@ -71,7 +71,7 @@ public class GeniusService {
                 if (result == null) continue;
 
                 String art = pickArtUrl(result);
-                if (art == null) continue;
+                if (art == null || isDefaultGeniusImage(art)) continue; // 로고/기본 이미지 제외
 
                 String primaryArtist = norm(primaryArtistName(result));
                 String rTitle = norm(result.optString("title", ""));
@@ -83,7 +83,7 @@ public class GeniusService {
                 if (!wantArtist.isEmpty() && !primaryArtist.isEmpty()) {
                     if (primaryArtist.equals(wantArtist)) s += 0.60;
                     else if (primaryArtist.contains(wantArtist) || wantArtist.contains(primaryArtist)) s += 0.45;
-                    else continue;
+                    else continue; // 아티스트가 너무 다르면 skip
                 }
 
                 // 2) 곡 제목 정합성
@@ -106,18 +106,37 @@ public class GeniusService {
                 }
             }
 
+            // best 후보가 있으면 반환
             if (best != null) {
                 String art = pickArtUrl(best);
-                if (art != null) return art;
+                if (art != null && !isDefaultGeniusImage(art)) return art;
             }
 
-            // 최후 fallback
+            // 최후 fallback: 최소 점수 threshold 이상인 후보만
             for (int i = 0; i < hits.length(); i++) {
                 JSONObject hit = hits.optJSONObject(i);
                 if (hit == null) continue;
                 JSONObject result = hit.optJSONObject("result");
+                if (result == null) continue;
+
                 String art = pickArtUrl(result);
-                if (art != null) return art;
+                String primaryArtist = norm(primaryArtistName(result));
+                String rTitle = norm(result.optString("title", ""));
+                String fullTitle = norm(result.optString("full_title", ""));
+
+                double s = 0.0;
+                if (!wantArtist.isEmpty() && !primaryArtist.isEmpty()) {
+                    if (primaryArtist.equals(wantArtist)) s += 0.60;
+                    else if (primaryArtist.contains(wantArtist) || wantArtist.contains(primaryArtist)) s += 0.45;
+                }
+                if (!wantTitle.isEmpty()) {
+                    if (rTitle.equals(wantTitle)) s += 0.30;
+                    else if (rTitle.contains(wantTitle) || fullTitle.contains(wantTitle)) s += 0.20;
+                }
+
+                if (s >= 0.2 && art != null && !isDefaultGeniusImage(art)) { // 최소 매칭 점수 0.2 이상
+                    return art;
+                }
             }
 
             return null;
@@ -168,5 +187,13 @@ public class GeniusService {
         x = x.replaceAll("[^0-9a-zA-Z가-힣ㄱ-ㅎㅏ-ㅣぁ-ゔァ-ヴー一-龯々〆〤\\s']", " "); // 아포스트로피 허용
         x = x.replaceAll("\\s+", " ").trim();
         return x;
+    }
+
+    /**
+     * Genius 로고/기본 이미지 URL 패턴 확인
+     */
+    private boolean isDefaultGeniusImage(String url) {
+        if (url == null) return true;
+        return url.contains("/images/default") || url.contains("/default_thumb");
     }
 }

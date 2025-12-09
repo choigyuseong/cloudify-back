@@ -94,7 +94,7 @@ cloudify:
 
   llm:
     apiKey: ${GEMINI_API_KEY}
-    model: ${GEMINI_MODEL:gemini-2.0-flash-exp}
+    model: ${GEMINI_MODEL:gemini-2.5-flash}
     temperature: 0.2
     topP: 0.9
     maxTokens: 500
