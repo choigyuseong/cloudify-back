@@ -193,7 +193,7 @@ public class YouTubeService {
             // ---------------------------------------------------------
             // 공식 채널 판단
             // - 영어 official, vevo, topic
-            // - 국내 화이트리스트 채널: +0.15
+            // - 국내 화이트리스트 채널: +0.10
             // ---------------------------------------------------------
             boolean isOfficial = snippet.optString("channelTitle", "").toLowerCase().contains("official")
                     || snippet.optString("channelTitle", "").toLowerCase().contains("vevo")
@@ -201,7 +201,7 @@ public class YouTubeService {
 
             for (String c : DOMESTIC_OFFICIAL_CHANNELS) {
                 if (snippet.optString("channelTitle", "").toLowerCase().contains(c.toLowerCase())) {
-                    s += 0.15;
+                    s += 0.10;
                     isOfficial = true;
                 }
             }
@@ -218,9 +218,9 @@ public class YouTubeService {
 
             // ---------------------------------------------------------
             // 노이즈 키워드 패널티
-            // cover, remix, nightcore, sped up, lyrics, fancam, practice, dance
+            // cover, remix, nightcore, sped up, lyrics, fancam, practice, dance, performance
             // ---------------------------------------------------------
-            if (noisy.matches(".*\\b(cover|remix|nightcore|sped up|lyrics|fancam|practice|dance)\\b.*")) s -= 0.40;
+            if (noisy.matches(".*\\b(cover|remix|nightcore|sped up|lyrics|fancam|practice|dance|performance)\\b.*")) s -= 0.40;
 
             // ---------------------------------------------------------
             // 제목/채널 내 official/MV 키워드 보정

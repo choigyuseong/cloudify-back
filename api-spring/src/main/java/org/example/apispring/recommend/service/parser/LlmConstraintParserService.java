@@ -173,21 +173,28 @@ public class LlmConstraintParserService implements ConstraintParserService {
         - branch: calm, uplift
         - tempo: slow, mid, fast
         
-        출력 형식 예시:
+        출력 형식 (반드시 다음 JSON 형태 유지):
         {
           "tags": [
-            {"id": "mood.comfort"},
-            {"id": "genre.ballad"},
-            {"id": "activity.study"},
-            {"id": "branch.calm"},
-            {"id": "tempo.slow"}
+            {"id": "mood.xxx"},
+            {"id": "genre.xxx"},
+            {"id": "activity.xxx"},
+            {"id": "branch.xxx"},
+            {"id": "tempo.xxx"}
           ]
         }
         
         규칙:
-        1. 각 타입(mood/genre/activity/branch/tempo)에서 반드시 1개의 태그 선택
-        2. 허용된 태그만 사용
-        3. JSON 형식만 출력 (설명 불필요)
+        1. 각 타입(mood/genre/activity/branch/tempo)에서 정확히 한 개의 태그만 선택
+        2. 허용된 태그 외 단어 절대 사용 금지
+        3. JSON 외의 텍스트 절대 출력 금지 (설명/문장/주석 포함 금지)
+        4. 입력이 모호하거나 여러 해석이 가능한 경우 default 선택:
+            - mood: comfort
+            - genre: pop
+            - activity: unwind
+            - branch: calm
+            - tempo: mid
+        5. 충돌되는 의미가 있을 경우 더 명확한 단어를 우선
         
         사용자 입력: "%s"
         """, text);

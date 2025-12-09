@@ -7,6 +7,7 @@ import org.example.apispring.recommend.service.RecommendationService;
 import org.example.apispring.recommend.service.GeniusService;
 import org.example.apispring.recommend.service.youtube.YouTubeService;
 import org.example.apispring.youtube.web.YouTubeIdExtractor;
+import org.example.apispring.recommend.service.VideoIdFillService;   // ⭐ 추가
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
@@ -22,15 +23,18 @@ public class RecommendationController {
     private final RecommendationService recommender;
     private final YouTubeService yt;
     private final GeniusService genius;
+    private final VideoIdFillService videoIdFillService;         // ⭐ 추가
 
     public RecommendationController(
             RecommendationService recommender,
             YouTubeService yt,
-            GeniusService genius
+            GeniusService genius,
+            VideoIdFillService videoIdFillService                // ⭐ 생성자에 주입
     ) {
         this.recommender = recommender;
         this.yt = yt;
         this.genius = genius;
+        this.videoIdFillService = videoIdFillService;           // ⭐ 저장
     }
 
     /**
@@ -52,13 +56,16 @@ public class RecommendationController {
 
         var futures = top.stream()
                 .map(song -> CompletableFuture.supplyAsync(() -> {
-                    // YouTube: 상위 N개만 조회
-                    String videoId = yt.fetchVideoIdBySearch(song.title(), song.artist());
+
+                    String videoId = song.videoId();
+                    if (videoId == null || videoId.isBlank()) {
+                        videoId = yt.fetchVideoIdBySearch(song.title(), song.artist());
+                    }
+
                     String watch = (videoId == null) ? null : YouTubeService.watchUrl(videoId);
                     String embed = (videoId == null) ? null : YouTubeService.embedUrl(videoId);
                     String thumb = (videoId == null) ? null : YouTubeService.thumbnailUrl(videoId);
 
-                    // Genius: 상위 N개만 조회
                     String album = genius.fetchAlbumImage(song.title(), song.artist());
 
                     return new SongResponse(
@@ -79,10 +86,9 @@ public class RecommendationController {
     }
 
     /**
-     * ✅ POST /api/recommend/simple
+     * 🟣 POST /api/recommend/simple
      * - CanonicalTagQuerySimple 기반 추천
      * - limit 미지정 시 기본 5개
-     * - 상위 N개만 YouTube/Genius 조회(동기)
      */
     @PostMapping("/simple")
     public ResponseEntity<List<SongResponse>> recommendSimple(
@@ -97,7 +103,12 @@ public class RecommendationController {
 
         var responses = top.stream()
                 .map(song -> {
-                    String videoId = yt.fetchVideoIdBySearch(song.title(), song.artist());
+
+                    String videoId = song.videoId();
+                    if (videoId == null || videoId.isBlank()) {
+                        videoId = yt.fetchVideoIdBySearch(song.title(), song.artist());
+                    }
+
                     String watch = (videoId == null) ? null : YouTubeService.watchUrl(videoId);
                     String embed = (videoId == null) ? null : YouTubeService.embedUrl(videoId);
                     String thumb = (videoId == null) ? null : YouTubeService.thumbnailUrl(videoId);
@@ -144,6 +155,13 @@ public class RecommendationController {
                 new CanonicalTagQuery.Tag("TEMPO.slow".toLowerCase(Locale.ROOT))
         ));
         return ResponseEntity.ok(recommender.recommend(query));
+    }
+
+    /** 🧹 DB videoId 자동 갱신 */
+    @PostMapping("/fill-video-id")   // ⭐ 추가
+    public ResponseEntity<String> fillVideoIds() {
+        videoIdFillService.fillVideoIds();  // ⭐ batch DB update
+        return ResponseEntity.ok("DONE");
     }
 
     /** 단일 응답 DTO */
