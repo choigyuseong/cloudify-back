@@ -1,12 +1,17 @@
-package org.example.apispring.recommend.service.youtube;
+package org.example.apispring.youtube.application;
 
+import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.example.apispring.recommend.domain.Song;
+import org.example.apispring.recommend.domain.SongRepository;
 import org.json.JSONArray;
 import org.json.JSONObject;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.http.client.SimpleClientHttpRequestFactory;
 import org.springframework.http.converter.StringHttpMessageConverter;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.client.HttpStatusCodeException;
 import org.springframework.web.client.RestTemplate;
 import org.springframework.web.util.UriComponentsBuilder;
@@ -18,6 +23,7 @@ import java.util.*;
 import java.util.concurrent.CompletableFuture;
 
 @Slf4j
+@RequiredArgsConstructor
 @Service
 public class YouTubeService {
 
@@ -36,7 +42,10 @@ public class YouTubeService {
     private static final String SEARCH_URL = "https://www.googleapis.com/youtube/v3/search";
 
     private final RestTemplate rest = new RestTemplate();
-    private final YouTubeCache cache;
+
+    private final SongRepository songRepository;
+
+    private static final int BATCH_SIZE = 50;
 
     // ---------------------------------------------------------
     // 국내 공식 채널 화이트리스트
@@ -46,9 +55,6 @@ public class YouTubeService {
             "bighit", "hybe", "smtown", "jyp", "yg", "starship"
     );
 
-    public YouTubeService(YouTubeCache cache) {
-        this.cache = cache;
-    }
 
     // ---------------------------------------------------------
     // RestTemplate UTF-8 인코딩 강제 설정
@@ -82,14 +88,6 @@ public class YouTubeService {
         if (apiKey == null || apiKey.isBlank()) {
             log.error("❌ Missing YouTube API KEY");
             return null;
-        }
-
-        // 캐시 키 생성 및 조회
-        final String cacheKey = (title + "|" + artist).toLowerCase(Locale.ROOT);
-        String cached = cache.get(cacheKey);
-        if (cached != null) {
-            log.info("⚡ YouTube cache hit: {} -> {}", cacheKey, cached);
-            return cached;
         }
 
         try {
@@ -138,7 +136,7 @@ public class YouTubeService {
             // ---------------------------------------------------------
             // 후보 중 최고 점수 영상 선택
             // ---------------------------------------------------------
-            return pickBest(items, title, artist, cacheKey);
+            return pickBest(items, title, artist);
 
         } catch (HttpStatusCodeException e) {
             log.error("❌ YouTube HTTP Error {} / {}", e.getStatusCode(), e.getResponseBodyAsString());
@@ -153,7 +151,7 @@ public class YouTubeService {
     // 후보 영상 중 최고 점수 영상 선택
     // 점수 산정: 아티스트 일치, 제목 유사도, 공식성, LIVE/커버 패널티 등
     // ---------------------------------------------------------
-    private String pickBest(JSONArray items, String title, String artist, String cacheKey) {
+    private String pickBest(JSONArray items, String title, String artist) {
         String wantTitle = normalizeForSearch(title);
         List<String> wantArtists = splitArtists(artist); // 아티스트 분리 (feat, &, / 등)
 
@@ -193,7 +191,7 @@ public class YouTubeService {
             // ---------------------------------------------------------
             // 공식 채널 판단
             // - 영어 official, vevo, topic
-            // - 국내 화이트리스트 채널: +0.15
+            // - 국내 화이트리스트 채널: +0.10
             // ---------------------------------------------------------
             boolean isOfficial = snippet.optString("channelTitle", "").toLowerCase().contains("official")
                     || snippet.optString("channelTitle", "").toLowerCase().contains("vevo")
@@ -201,7 +199,7 @@ public class YouTubeService {
 
             for (String c : DOMESTIC_OFFICIAL_CHANNELS) {
                 if (snippet.optString("channelTitle", "").toLowerCase().contains(c.toLowerCase())) {
-                    s += 0.15;
+                    s += 0.10;
                     isOfficial = true;
                 }
             }
@@ -218,9 +216,9 @@ public class YouTubeService {
 
             // ---------------------------------------------------------
             // 노이즈 키워드 패널티
-            // cover, remix, nightcore, sped up, lyrics, fancam, practice, dance
+            // cover, remix, nightcore, sped up, lyrics, fancam, practice, dance, performance
             // ---------------------------------------------------------
-            if (noisy.matches(".*\\b(cover|remix|nightcore|sped up|lyrics|fancam|practice|dance)\\b.*")) s -= 0.40;
+            if (noisy.matches(".*\\b(cover|remix|nightcore|sped up|lyrics|fancam|practice|dance|performance)\\b.*")) s -= 0.40;
 
             // ---------------------------------------------------------
             // 제목/채널 내 official/MV 키워드 보정
@@ -242,7 +240,6 @@ public class YouTubeService {
 
         if (bestItem != null) {
             String vid = bestItem.getJSONObject("id").optString("videoId", null);
-            cache.put(cacheKey, vid);
             log.info("🎬 Selected YouTube Video = {}", vid);
             return vid;
         }
@@ -310,5 +307,27 @@ public class YouTubeService {
 
     public static String thumbnailUrl(String id) {
         return id == null ? null : "https://img.youtube.com/vi/" + id + "/hqdefault.jpg";
+    }
+
+    @Transactional
+    public void fillVideoIds() {
+        int page = 0;
+        List<Song> batch;
+        do {
+            batch = songRepository.findAllByVideoIdIsNull(PageRequest.of(page, BATCH_SIZE)).getContent();
+            for (Song song : batch) {
+                try {
+                    String videoId = fetchVideoIdBySearch(song.getTitle(), song.getArtist());
+                    if (videoId != null && !videoId.isBlank()) {
+                        song.updateVideoId(videoId);
+                        songRepository.save(song);
+                        log.info("📌 VIDEO_ID 저장: {} - {} -> {}", song.getTitle(), song.getArtist(), videoId);
+                    }
+                } catch (Exception e) {
+                    log.error("❌ 저장실패 {} - {}", song.getTitle(), song.getArtist(), e.getMessage());
+                }
+            }
+            page++;
+        } while (!batch.isEmpty());
     }
 }
