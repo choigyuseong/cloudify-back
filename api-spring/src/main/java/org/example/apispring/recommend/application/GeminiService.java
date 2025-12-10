@@ -92,6 +92,7 @@ public class GeminiService {
                 2. 위에 제시된 허용된 태그 값 목록에 있는 값만 사용하세요.
                 3. 키 이름은 반드시 대문자(MOOD, GENRE, ACTIVITY, BRANCH, TEMPO)를 사용하세요.
                 4. JSON 형식만 출력하세요. 그 외 설명, 자연어 텍스트는 절대 출력하지 마세요.
+                5. 충돌되는 의미가 있을 경우 더 명확한 단어를 우선하세요.
                 
                 사용자 입력: "%s"
                 """, text);

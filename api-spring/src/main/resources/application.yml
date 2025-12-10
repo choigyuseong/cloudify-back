@@ -44,10 +44,7 @@ spring:
           google:
             issuer-uri: https://accounts.google.com
 
-security:
-  cookie:
-    secure: ${COOKIE_SECURE}
-    samesite: ${COOKIE_SAMESITE}
+
 
 cors:
   allowed-origins: ${CORS_ALLOWED_ORIGINS}
