@@ -27,7 +27,6 @@ public class AuthController {
 
     private final AuthService authService;
     private final CookieUtil cookies;
-    private final OAuthCredentialService credentialService;
 
     @PostMapping("/refresh")
     public ResponseEntity<Void> refresh(HttpServletRequest req, HttpServletResponse res) {

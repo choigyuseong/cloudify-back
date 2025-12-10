@@ -4,12 +4,12 @@ public class BusinessException extends RuntimeException {
     private final ErrorCode errorCode;
 
     public BusinessException(ErrorCode errorCode) {
-        super(errorCode.name());
+        super(errorCode.getMessage());
         this.errorCode = errorCode;
     }
 
-    public BusinessException(ErrorCode errorCode, String message) {
-        super(message);
+    public BusinessException(ErrorCode errorCode, String customMessage) {
+        super(errorCode.getMessage() + " -  " + customMessage);
         this.errorCode = errorCode;
     }
 

@@ -25,7 +25,7 @@ import java.util.concurrent.CompletableFuture;
 @Slf4j
 @RequiredArgsConstructor
 @Service
-public class YouTubeService {
+public class YoutubeService {
 
     // ---------------------------------------------------------
     // 외부 설정값
@@ -276,7 +276,7 @@ public class YouTubeService {
         return Arrays.stream(artist.split("\\s*(?:&|/|,|and|feat\\.?|ft\\.?)\\s*"))
                 .map(String::trim)
                 .filter(a -> !a.isEmpty())
-                .map(YouTubeService::normalizeForSearch)
+                .map(YoutubeService::normalizeForSearch)
                 .toList();
     }
 

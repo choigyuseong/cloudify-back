@@ -3,7 +3,6 @@ package org.example.apispring.global.error;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.annotation.Nullable;
 import jakarta.servlet.http.HttpServletResponse;
-import org.springframework.http.ResponseEntity;
 
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
@@ -25,6 +24,8 @@ public record ErrorResponse(int code, String name, String message) {
         res.setStatus(ec.getHttpStatus().value());
         res.setContentType("application/json");
         res.setCharacterEncoding(StandardCharsets.UTF_8.name());
-        om.writeValue(res.getWriter(), customMessage == null ? of(ec) : of(ec, customMessage));
+        om.writeValue(res.getWriter(), customMessage == null
+                ? of(ec)
+                : of(ec, customMessage));
     }
 }
