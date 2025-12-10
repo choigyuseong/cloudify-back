@@ -1,24 +1,19 @@
 package org.example.apispring.recommend.application.dto;
 
-import org.example.apispring.recommend.domain.SongRecord;
 
-public record SongResponse(
+import org.example.apispring.recommend.domain.Song;
+
+public record SongResponseDto(
         String title,
         String artist,
         String videoId,
-        String watchUrl,
-        String embedUrl,
-        String thumbnailUrl,
-        String albumImageUrl
+        String songImageUrl
 ) {
-    public static SongResponse of(SongRecord record) {
-        return new SongResponse(
-                record.getTitle(),
-                record.getArtist(),
-                null,
-                null,
-                null,
-                null,
+    public static SongResponseDto of(Song song) {
+        return new SongResponseDto(
+                song.getTitle(),
+                song.getArtist(),
+                song.getVideoId(),
                 null
         );
     }

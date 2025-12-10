@@ -1,4 +1,4 @@
-package org.example.apispring.youtube.infra;
+package org.example.apispring.youtube.domain;
 
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;

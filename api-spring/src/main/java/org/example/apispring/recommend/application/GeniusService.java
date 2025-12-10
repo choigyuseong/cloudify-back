@@ -1,10 +1,16 @@
-package org.example.apispring.recommend.service;
+package org.example.apispring.recommend.application;
 
+import io.micrometer.common.lang.Nullable;
 import lombok.extern.slf4j.Slf4j;
+import org.example.apispring.global.error.BusinessException;
+import org.example.apispring.global.error.ErrorCode;
 import org.json.JSONArray;
 import org.json.JSONObject;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.http.*;
+import org.springframework.http.HttpEntity;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpMethod;
+import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestTemplate;
 
@@ -22,42 +28,64 @@ public class GeniusService {
     @Value("${genius.api.token}")
     private String geniusToken;
 
-    /**
-     * 기존 호출과 호환용(예산 가드 없이 호출)
-     */
     public String fetchAlbumImage(String title, String artist) {
         return fetchAlbumImage(title, artist, null);
     }
 
-    /**
-     * 예산 가드 포함 버전
-     */
-    public String fetchAlbumImage(String title, String artist, org.example.apispring.recommend.service.common.RequestBudget budget) {
+    public String fetchAlbumImage(String title,
+                                  String artist,
+                                  @Nullable org.example.apispring.recommend.service.common.RequestBudget budget) {
+
+        if (budget != null && !budget.takeOne()) {
+            return null;
+        }
+
+        if (geniusToken == null || geniusToken.isBlank()) {
+            log.warn("[Genius] token missing");
+            throw new BusinessException(ErrorCode.GENIUS_API_TOKEN_MISSING);
+        }
+
         try {
-            if (budget != null && !budget.takeOne()) return null;
-
-            if (geniusToken == null || geniusToken.isBlank()) {
-                log.warn("[Genius] token missing");
-                return null;
-            }
-
             String q = (isBlank(artist) ? title : (artist + " " + title));
             String url = "https://api.genius.com/search?q=" + URLEncoder.encode(q, StandardCharsets.UTF_8);
 
             HttpHeaders headers = new HttpHeaders();
             headers.set("Authorization", "Bearer " + geniusToken);
 
-            ResponseEntity<String> res = http.exchange(url, HttpMethod.GET, new HttpEntity<>(headers), String.class);
-            if (!res.getStatusCode().is2xxSuccessful() || res.getBody() == null) return null;
+            ResponseEntity<String> res;
+            try {
+                res = http.exchange(url, HttpMethod.GET, new HttpEntity<>(headers), String.class);
+            } catch (Exception ex) {
+                log.warn("[Genius] HTTP error: {} - {}", ex.getClass().getSimpleName(), ex.getMessage());
+                throw new BusinessException(ErrorCode.GENIUS_UPSTREAM_ERROR, "Genius HTTP error: " + ex.getClass().getSimpleName() + " - " + ex.getMessage());
+            }
 
-            JSONObject root = new JSONObject(res.getBody());
+            if (!res.getStatusCode().is2xxSuccessful() || res.getBody() == null) {
+                log.warn("[Genius] non-2xx response: {}", res.getStatusCode());
+                throw new BusinessException(ErrorCode.GENIUS_UPSTREAM_ERROR, "Genius API non-2xx status: " + res.getStatusCode());
+            }
+
+            JSONObject root;
+            try {
+                root = new JSONObject(res.getBody());
+            } catch (Exception e) {
+                log.warn("[Genius] invalid JSON structure: {}", e.toString());
+                throw new BusinessException(
+                        ErrorCode.GENIUS_RESPONSE_INVALID,
+                        "Failed to parse Genius JSON: " + e.getMessage()
+                );
+            }
+
             JSONObject resp = root.optJSONObject("response");
-            if (resp == null) return null;
+            if (resp == null) {
+                return null;
+            }
 
             JSONArray hits = resp.optJSONArray("hits");
-            if (hits == null || hits.isEmpty()) return null;
+            if (hits == null || hits.isEmpty()) {
+                return null;
+            }
 
-            // 정규화
             String wantTitle = norm(title);
             String wantArtist = norm(artist);
 
@@ -79,24 +107,20 @@ public class GeniusService {
 
                 double s = 0.0;
 
-                // 1) 아티스트 정합성
                 if (!wantArtist.isEmpty() && !primaryArtist.isEmpty()) {
                     if (primaryArtist.equals(wantArtist)) s += 0.60;
                     else if (primaryArtist.contains(wantArtist) || wantArtist.contains(primaryArtist)) s += 0.45;
                     else continue;
                 }
 
-                // 2) 곡 제목 정합성
                 if (!wantTitle.isEmpty()) {
                     if (rTitle.equals(wantTitle)) s += 0.30;
                     else if (rTitle.contains(wantTitle) || fullTitle.contains(wantTitle)) s += 0.20;
                 }
 
-                // 3) 잡음 패널티
                 String noisy = rTitle + " " + fullTitle;
                 if (noisy.matches(".*\\b(live|cover|remix|nightcore|sped up|lyrics)\\b.*")) s -= 0.25;
 
-                // 4) [Genius] 업로드 아티스트 보너스
                 String uploader = norm(result.optJSONObject("primary_artist").optString("name", ""));
                 if (uploader.contains("genius")) s += 0.15;
 
@@ -111,7 +135,6 @@ public class GeniusService {
                 if (art != null) return art;
             }
 
-            // 최후 fallback
             for (int i = 0; i < hits.length(); i++) {
                 JSONObject hit = hits.optJSONObject(i);
                 if (hit == null) continue;
@@ -122,13 +145,13 @@ public class GeniusService {
 
             return null;
 
+        } catch (BusinessException be) {
+            throw be;
         } catch (Exception e) {
-            log.warn("[Genius] error: {}", e.toString());
-            return null;
+            log.warn("[Genius] unexpected error: {}", e.toString());
+            throw new BusinessException(ErrorCode.GENIUS_UPSTREAM_ERROR, "Unexpected Genius error: " + e.getClass().getSimpleName() + " - " + e.getMessage());
         }
     }
-
-    // ===================== 유틸 =====================
 
     private String pickArtUrl(JSONObject result) {
         if (result == null) return null;
@@ -144,28 +167,26 @@ public class GeniusService {
         try {
             JSONObject pa = result.optJSONObject("primary_artist");
             if (pa != null) return pa.optString("name", "");
-        } catch (Exception ignored) {}
+        } catch (Exception ignored) {
+        }
         return "";
     }
 
-    private boolean isHttp(String s) { return s != null && (s.startsWith("http://") || s.startsWith("https://")); }
-    private boolean isBlank(String s) { return s == null || s.isBlank(); }
+    private boolean isHttp(String s) {
+        return s != null && (s.startsWith("http://") || s.startsWith("https://"));
+    }
 
-    /**
-     * 정규화 (지니어스+유튜브 개선)
-     * - 괄호/Featuring 제거
-     * - 특수문자 제거
-     * - 소문자
-     * - 공백 정리
-     * - 일본어, 성조, 아포스트로피 포함 허용
-     */
+    private boolean isBlank(String s) {
+        return s == null || s.isBlank();
+    }
+
     private String norm(String s) {
         if (s == null) return "";
         String x = s.toLowerCase(Locale.ROOT);
         x = Normalizer.normalize(x, Normalizer.Form.NFKC);
         x = x.replaceAll("\\(.*?\\)|\\[.*?\\]|\\{.*?\\}", " ");
         x = x.replaceAll("\\b(feat\\.|ft\\.|with)\\b.*", " ");
-        x = x.replaceAll("[^0-9a-zA-Z가-힣ㄱ-ㅎㅏ-ㅣぁ-ゔァ-ヴー一-龯々〆〤\\s']", " "); // 아포스트로피 허용
+        x = x.replaceAll("[^0-9a-zA-Z가-힣ㄱ-ㅎㅏ-ㅣぁ-ゔァ-ヴー一-龯々〆〤\\s']", " ");
         x = x.replaceAll("\\s+", " ").trim();
         return x;
     }
