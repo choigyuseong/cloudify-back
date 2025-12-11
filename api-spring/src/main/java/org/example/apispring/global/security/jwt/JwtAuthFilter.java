@@ -73,6 +73,7 @@ public class JwtAuthFilter extends OncePerRequestFilter {
         } catch (Exception e) {
             SecurityContextHolder.clearContext();
             authEntryPoint.commence(req, res, new InsufficientAuthenticationException("JWT error", e));
+            return;
         }
     }
 
