@@ -55,13 +55,13 @@ public class AuthController {
     }
 
     @GetMapping("/me")
-    public Map<String, Object> me(Authentication auth) {
-        if (auth == null) {
+    public Map<String, Object> me(@AuthenticationPrincipal JwtPrincipal principal) {
+        if (principal == null) {
             throw new BusinessException(ErrorCode.UNAUTHORIZED);
         }
-        JwtPrincipal p = (JwtPrincipal) auth.getPrincipal();
-        return Map.of("userId", p.userId());
+        return Map.of("userId", principal.userId());
     }
+
 
     @PostMapping("/disconnect")
     public ResponseEntity<Void> disconnect(
