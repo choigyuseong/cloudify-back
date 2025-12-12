@@ -1,4 +1,4 @@
-package org.example.apispring.song.service;
+package org.example.apispring.song.application;
 
 import lombok.RequiredArgsConstructor;
 import org.example.apispring.global.error.BusinessException;

@@ -1,4 +1,4 @@
-package org.example.apispring.recommend.web;
+package org.example.apispring.song.web;
 
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.*;

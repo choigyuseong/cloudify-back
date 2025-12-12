@@ -1,4 +1,4 @@
-package org.example.apispring.recommend.domain;
+package org.example.apispring.song.domain;
 
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;

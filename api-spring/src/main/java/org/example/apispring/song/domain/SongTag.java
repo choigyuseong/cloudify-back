@@ -1,4 +1,4 @@
-package org.example.apispring.recommend.domain;
+package org.example.apispring.song.domain;
 
 import jakarta.persistence.*;
 import lombok.*;
