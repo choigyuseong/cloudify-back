@@ -1,7 +1,7 @@
-package org.example.apispring.recommend.application.dto;
+package org.example.apispring.song.application.dto;
 
 
-import org.example.apispring.recommend.domain.Song;
+import org.example.apispring.song.domain.Song;
 
 public record SongResponseDto(
         String title,
@@ -14,7 +14,29 @@ public record SongResponseDto(
                 song.getTitle(),
                 song.getArtist(),
                 song.getVideoId(),
-                null
+                resolveImageUrl(song)
         );
+    }
+
+    private static String resolveImageUrl(Song song) {
+        String album = song.getAlbumImageUrl();
+        if (isUsableAlbumImage(album)) {
+            return album.trim();
+        }
+
+        String thumb = song.getThumbnailImageUrl();
+        if (thumb != null && !thumb.isBlank()) {
+            return thumb.trim();
+        }
+
+        return null;
+    }
+
+    private static boolean isUsableAlbumImage(String album) {
+        if (album == null) return false;
+        String trimmed = album.trim();
+        if (trimmed.isEmpty()) return false;
+        if ("trash".equalsIgnoreCase(trimmed)) return false;
+        return true;
     }
 }

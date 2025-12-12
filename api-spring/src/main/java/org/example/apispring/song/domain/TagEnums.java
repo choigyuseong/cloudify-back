@@ -1,4 +1,4 @@
-package org.example.apispring.recommend.domain;
+package org.example.apispring.song.domain;
 
 public final class TagEnums {
     private TagEnums() {}

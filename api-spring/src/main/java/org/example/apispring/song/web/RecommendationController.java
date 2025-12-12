@@ -1,11 +1,17 @@
-package org.example.apispring.recommend.web;
+package org.example.apispring.song.web;
+
 
 import lombok.RequiredArgsConstructor;
-import org.example.apispring.recommend.application.GeminiService;
-import org.example.apispring.recommend.application.dto.*;
-import org.example.apispring.recommend.service.RecommendationService;
+import org.example.apispring.song.application.GeminiService;
+import org.example.apispring.song.application.RecommendationService;
+import org.example.apispring.song.application.dto.LlmTagResponseDto;
+import org.example.apispring.song.application.dto.LlmTextRequestDto;
+import org.example.apispring.song.application.dto.SongResponseDto;
 import org.springframework.http.ResponseEntity;
-import org.springframework.web.bind.annotation.*;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RestController;
 
 import java.util.List;
 

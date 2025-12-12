@@ -1,4 +1,4 @@
-package org.example.apispring.recommend.application;
+package org.example.apispring.song.application;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
@@ -6,9 +6,9 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import org.example.apispring.global.error.BusinessException;
 import org.example.apispring.global.error.ErrorCode;
-import org.example.apispring.recommend.application.dto.LlmTagResponseDto;
-import org.example.apispring.recommend.domain.TagEnums;
-import org.example.apispring.recommend.web.GeminiClient;
+import org.example.apispring.song.application.dto.LlmTagResponseDto;
+import org.example.apispring.song.domain.TagEnums;
+import org.example.apispring.song.web.GeminiClient;
 import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Service;
 
