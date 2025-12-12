@@ -1,13 +1,13 @@
-package org.example.apispring.recommend.service;
+package org.example.apispring.song.service;
 
 import lombok.RequiredArgsConstructor;
 import org.example.apispring.global.error.BusinessException;
 import org.example.apispring.global.error.ErrorCode;
-import org.example.apispring.recommend.application.dto.LlmTagResponseDto;
-import org.example.apispring.recommend.application.dto.SongResponseDto;
-import org.example.apispring.recommend.domain.Song;
-import org.example.apispring.recommend.domain.SongTag;
-import org.example.apispring.recommend.domain.SongTagRepository;
+import org.example.apispring.song.application.dto.LlmTagResponseDto;
+import org.example.apispring.song.application.dto.SongResponseDto;
+import org.example.apispring.song.domain.Song;
+import org.example.apispring.song.domain.SongTag;
+import org.example.apispring.song.domain.SongTagRepository;
 import org.springframework.dao.DataAccessException;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
