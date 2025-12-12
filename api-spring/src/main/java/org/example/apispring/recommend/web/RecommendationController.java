@@ -6,6 +6,7 @@ import org.example.apispring.recommend.dto.SongResponse;
 import org.example.apispring.recommend.service.RecommendationService;
 import org.example.apispring.recommend.service.GeniusService;
 import org.example.apispring.recommend.service.youtube.YouTubeService;
+import org.example.apispring.recommend.service.youtube.YouTubeServiceLyrics; // ⭐ 추가
 import org.example.apispring.youtube.web.YouTubeIdExtractor;
 import org.example.apispring.recommend.service.VideoIdFillService;   // ⭐ 추가
 import org.springframework.http.ResponseEntity;
@@ -22,17 +23,20 @@ public class RecommendationController {
 
     private final RecommendationService recommender;
     private final YouTubeService yt;
+    private final YouTubeServiceLyrics ytLyrics;                 // ⭐ 추가
     private final GeniusService genius;
     private final VideoIdFillService videoIdFillService;         // ⭐ 추가
 
     public RecommendationController(
             RecommendationService recommender,
             YouTubeService yt,
+            YouTubeServiceLyrics ytLyrics,                       // ⭐ 생성자에 주입
             GeniusService genius,
             VideoIdFillService videoIdFillService                // ⭐ 생성자에 주입
     ) {
         this.recommender = recommender;
         this.yt = yt;
+        this.ytLyrics = ytLyrics;                                // ⭐ 저장
         this.genius = genius;
         this.videoIdFillService = videoIdFillService;           // ⭐ 저장
     }
@@ -144,6 +148,13 @@ public class RecommendationController {
         return ResponseEntity.ok(new VideoIdResponse(id));
     }
 
+    /** 🎧 GET /api/recommend/audio-id/by-search?title=...&artist=... */
+    @GetMapping("/audio-id/by-search")
+    public ResponseEntity<AudioIdResponse> bySearchLyrics(@RequestParam String title, @RequestParam String artist) {
+        String id = ytLyrics.fetchAudioIdBySearch(title, artist);
+        return ResponseEntity.ok(new AudioIdResponse(id));
+    }
+
     /** 🧾 샘플 */
     @GetMapping("/demo")
     public ResponseEntity<List<SongResponse>> demo() {
@@ -166,4 +177,7 @@ public class RecommendationController {
 
     /** 단일 응답 DTO */
     public record VideoIdResponse(String videoId) {}
+
+    /** 단일 응답 DTO (lyrics/audio) */
+    public record AudioIdResponse(String audioId) {}
 }
