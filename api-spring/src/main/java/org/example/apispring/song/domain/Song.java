@@ -45,4 +45,6 @@ public class Song {
     public void updateAlbumImageUrl(String albumImageUrl) {
         this.albumImageUrl = albumImageUrl;
     }
+
+    public void updateThumbnailImageUrl(String url) { this.thumbnailImageUrl = url; }
 }

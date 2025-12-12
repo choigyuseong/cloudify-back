@@ -1,4 +1,4 @@
-package org.example.apispring.youtube.application;
+package org.example.apispring.recommend.application;
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
