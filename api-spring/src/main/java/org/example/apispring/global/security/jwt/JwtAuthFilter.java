@@ -59,6 +59,10 @@ public class JwtAuthFilter extends OncePerRequestFilter {
         try {
             var claims = jwt.decodeAccess(token);
 
+            if (claims.userId() == null) {
+                throw new IllegalArgumentException("JWT missing userId");
+            }
+
             var principal = new JwtPrincipal(claims.userId());
             var auth = new UsernamePasswordAuthenticationToken(
                     principal,
