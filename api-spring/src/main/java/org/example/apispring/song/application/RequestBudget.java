@@ -1,4 +1,4 @@
-package org.example.apispring.song.service.common;
+package org.example.apispring.song.application;
 
 import java.util.concurrent.atomic.AtomicInteger;
 

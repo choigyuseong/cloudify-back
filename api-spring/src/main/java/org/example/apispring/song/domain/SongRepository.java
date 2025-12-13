@@ -22,7 +22,14 @@ public interface SongRepository extends JpaRepository<Song, String> {
             WHERE (s.videoId IS NULL OR s.videoId = '')
                OR (s.thumbnailImageUrl IS NULL OR s.thumbnailImageUrl = '')
             """)
-    List<Song> findSongsWithMissingYoutubeMeta(Pageable pageable);
+    List<Song> findSongsWithMissingVideoIdOrThumbnail(Pageable pageable);
+
+    @Query("""
+        SELECT s
+        FROM Song s
+        WHERE s.audioId IS NULL OR s.audioId = ''
+        """)
+    List<Song> findSongsWithMissingAudioId(Pageable pageable);
 
     Optional<Song> findByVideoId(String videoId);
 }

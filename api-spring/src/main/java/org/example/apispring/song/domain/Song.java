@@ -42,6 +42,10 @@ public class Song {
         this.videoId = videoId;
     }
 
+    public void updateAudioId(String audioId) {
+        this.audioId = audioId;
+    }
+
     public void updateAlbumImageUrl(String albumImageUrl) {
         this.albumImageUrl = albumImageUrl;
     }
