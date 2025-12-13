@@ -30,6 +30,7 @@ public class FillDbService {
     private final SongRepository songRepository;
     private final GeniusClient geniusClient;
     private final YoutubeVideoIdSearchService youtubeVideoIdSearchService;
+    private final YoutubeAudioIdSearchService youtubeAudioIdSearchService;
 
     @Transactional
     public void fillAlbumImagesFromGenius() {
@@ -89,9 +90,9 @@ public class FillDbService {
     }
 
     @Transactional
-    public void fillYoutubeMetadata() {
+    public void fillYoutubeVideoIdAndThumbnail() {
         while (true) {
-            List<Song> batch = songRepository.findSongsWithMissingYoutubeMeta(
+            List<Song> batch = songRepository.findSongsWithMissingVideoIdOrThumbnail(
                     PageRequest.of(0, YOUTUBE_BATCH_SIZE)
             );
             if (batch.isEmpty()) {
@@ -142,6 +143,56 @@ public class FillDbService {
             }
         }
     }
+
+    @Transactional
+    public void fillYoutubeAudioId() {
+        while (true) {
+            List<Song> batch = songRepository.findSongsWithMissingAudioId(
+                    PageRequest.of(0, YOUTUBE_BATCH_SIZE)
+            );
+            if (batch.isEmpty()) {
+                break;
+            }
+
+            int updatedThisRound = 0;
+
+            for (Song song : batch) {
+                try {
+                    if (!isBlank(song.getAudioId())) {
+                        continue;
+                    }
+
+                    String title = song.getTitle();
+                    String artist = song.getArtist();
+                    if (title == null || artist == null) {
+                        continue;
+                    }
+
+                    String audioId = youtubeAudioIdSearchService.findAudioId(title, artist);
+
+                    if (isBlank(audioId)) {
+                        continue;
+                    }
+
+                    song.updateAudioId(audioId);
+                    songRepository.save(song);
+                    updatedThisRound++;
+
+                } catch (BusinessException be) {
+                    if (be.errorCode() == ErrorCode.YOUTUBE_API_KEY_MISSING) {
+                        throw be;
+                    }
+                } catch (Exception e) {
+                }
+            }
+            if (updatedThisRound == 0) {
+                log.warn("[fillYoutubeAudioId] updated=0 in this round; stop to avoid infinite loop. batchSize={}", batch.size());
+                break;
+            }
+        }
+    }
+
+
 
     private String selectAlbumImageUrl(JSONArray hits) {
         JSONObject best = null;

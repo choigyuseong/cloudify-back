@@ -20,16 +20,15 @@ public class SongController {
         return ResponseEntity.ok("GENIUS_ALBUM_IMAGES_FILLED");
     }
 
-    @PostMapping("/fill/youtube-metadata")
-    public ResponseEntity<String> fillYoutubeMetadata() {
-        fillDbService.fillYoutubeMetadata();
-        return ResponseEntity.ok("YOUTUBE_METADATA_FILLED");
+    @PostMapping("/fill/youtube-video-and-thumbnail")
+    public ResponseEntity<String> fillYoutubeVideoIdAndThumbnail() {
+        fillDbService.fillYoutubeVideoIdAndThumbnail();
+        return ResponseEntity.ok("YOUTUBE_VIDEO_ID_AND_THUMBNAIL_FILLED");
     }
 
-    @PostMapping("/fill/all-metadata")
-    public ResponseEntity<String> fillAllMetadata() {
-        fillDbService.fillYoutubeMetadata();
-        fillDbService.fillAlbumImagesFromGenius();
-        return ResponseEntity.ok("ALL_METADATA_FILLED");
+    @PostMapping("/fill/youtube-audio")
+    public ResponseEntity<String> fillYoutubeAudioId() {
+        fillDbService.fillYoutubeAudioId();
+        return ResponseEntity.ok("YOUTUBE_AUDIO_ID_FILLED");
     }
 }
