@@ -29,11 +29,15 @@ public class GeminiService {
         ResponseEntity<String> response;
         try {
             response = geminiClient.generateContent(prompt);
+        } catch (BusinessException be) {
+            throw be;
         } catch (Exception ex) {
             throw new BusinessException(
-                    ErrorCode.GEMINI_UPSTREAM_ERROR, "Gemini HTTP 호출 중 예외: " + ex.getClass().getSimpleName() + " - " + ex.getMessage()
+                    ErrorCode.GEMINI_UPSTREAM_ERROR,
+                    "Gemini HTTP 호출 중 예외: " + ex.getClass().getSimpleName() + " - " + ex.getMessage()
             );
         }
+
 
         if (!response.getStatusCode().is2xxSuccessful() || response.getBody() == null) {
             throw new BusinessException(
