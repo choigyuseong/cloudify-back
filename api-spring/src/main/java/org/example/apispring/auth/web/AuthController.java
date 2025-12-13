@@ -18,7 +18,9 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
+import java.util.HashMap;
 import java.util.Map;
+import java.util.UUID;
 
 @RestController
 @RequestMapping("/api/auth")
@@ -59,7 +61,15 @@ public class AuthController {
         if (principal == null) {
             throw new BusinessException(ErrorCode.UNAUTHORIZED);
         }
-        return Map.of("userId", principal.userId());
+
+        UUID userId = principal.userId();
+        if (userId == null) {
+            throw new BusinessException(ErrorCode.JWT_INVALID);
+        }
+
+        Map<String, Object> response = new HashMap<>();
+        response.put("userId", userId);
+        return response;
     }
 
 
