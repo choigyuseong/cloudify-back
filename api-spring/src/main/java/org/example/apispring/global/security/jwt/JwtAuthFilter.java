@@ -6,15 +6,15 @@ import jakarta.servlet.http.Cookie;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import lombok.RequiredArgsConstructor;
+import org.example.apispring.global.error.BusinessException;
 import org.springframework.http.HttpMethod;
-import org.springframework.security.authentication.InsufficientAuthenticationException;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.core.context.SecurityContextHolder;
-import org.springframework.security.web.AuthenticationEntryPoint;
 import org.springframework.security.web.authentication.WebAuthenticationDetailsSource;
 import org.springframework.stereotype.Component;
 import org.springframework.web.filter.OncePerRequestFilter;
+import org.springframework.web.servlet.HandlerExceptionResolver;
 
 import java.io.IOException;
 import java.util.List;
@@ -28,7 +28,8 @@ public class JwtAuthFilter extends OncePerRequestFilter {
     private static final String BEARER_PREFIX = "Bearer ";
 
     private final JwtTokenProvider jwt;
-    private final AuthenticationEntryPoint authEntryPoint;
+    private final JwtErrorCodeMapper jwtErrorCodeMapper;
+    private final HandlerExceptionResolver handlerExceptionResolver;
 
     @Override
     protected boolean shouldNotFilter(HttpServletRequest req) {
@@ -76,7 +77,9 @@ public class JwtAuthFilter extends OncePerRequestFilter {
 
         } catch (Exception e) {
             SecurityContextHolder.clearContext();
-            authEntryPoint.commence(req, res, new InsufficientAuthenticationException("JWT error", e));
+
+            var ec = jwtErrorCodeMapper.map(e);
+            handlerExceptionResolver.resolveException(req, res, null, new BusinessException(ec));
             return;
         }
     }

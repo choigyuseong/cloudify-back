@@ -126,6 +126,12 @@ dependencies {
     runtimeOnly   'io.jsonwebtoken:jjwt-jackson:0.13.0' // Jackson 기반 직렬화
 
     // ─────────────────────────────────────────────────────────────────────────
+    // Http Client5
+    // - 클라이언트들을 RestTemplateConfig 을 따로 생성하고 이걸 주입하는 방식으로 사용
+    // ─────────────────────────────────────────────────────────────────────────
+    implementation "org.apache.httpcomponents.client5:httpclient5"
+
+    // ─────────────────────────────────────────────────────────────────────────
     // Test
     // - Spring Boot 기본 테스트 + Security 테스트 유틸
     // - (선택) Testcontainers로 Postgres 통합 테스트
