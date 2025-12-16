@@ -1,6 +1,5 @@
 package org.example.apispring.song.web;
 
-import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.example.apispring.global.error.BusinessException;
 import org.example.apispring.global.error.ErrorCode;
@@ -16,16 +15,18 @@ import java.nio.charset.StandardCharsets;
 
 @Slf4j
 @Component
-@RequiredArgsConstructor
 public class YoutubeClient {
 
-    @Qualifier("youtubeRestTemplate")
     private final RestTemplate restTemplate;
 
     @Value("${YOUTUBE_API_KEY:}")
     private String apiKey;
 
     private static final String SEARCH_URL = "https://www.googleapis.com/youtube/v3/search";
+
+    public YoutubeClient(@Qualifier("youtubeRestTemplate") RestTemplate restTemplate) {
+        this.restTemplate = restTemplate;
+    }
 
     public ResponseEntity<String> search(String query, int maxResults) {
         if (apiKey == null || apiKey.isBlank()) {
