@@ -1,6 +1,6 @@
 package org.example.apispring.song.application;
 
-import lombok.extern.slf4j.Slf4j;
+import lombok.RequiredArgsConstructor;
 import org.example.apispring.global.error.BusinessException;
 import org.example.apispring.global.error.ErrorCode;
 import org.json.JSONArray;
@@ -8,14 +8,13 @@ import org.json.JSONObject;
 import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Service;
 
-import java.text.Normalizer;
-import java.util.Locale;
-
-@Slf4j
 @Service
+@RequiredArgsConstructor
 public class GeniusAlbumImageUrlSearchService {
 
     private static final double MIN_CONFIDENCE_SCORE = 0.20;
+
+    private final SongQueryNormalizationService songQueryNormalizationService;
 
     public GeniusAlbumImageSearchResult extractAlbumImageUrl(
             ResponseEntity<String> res,
@@ -72,8 +71,8 @@ public class GeniusAlbumImageUrlSearchService {
     }
 
     private Pick selectBestHit(JSONArray hits, String title, String artist) {
-        String wantTitle = norm(title);
-        String wantArtist = norm(artist);
+        String wantTitle = songQueryNormalizationService.normalizeForMatch(title);
+        String wantArtist = songQueryNormalizationService.normalizeForMatch(artist);
 
         JSONObject best = null;
         double bestScore = -999.0;
@@ -85,9 +84,9 @@ public class GeniusAlbumImageUrlSearchService {
             JSONObject result = hit.optJSONObject("result");
             if (result == null) continue;
 
-            String primaryArtist = norm(primaryArtistName(result));
-            String rTitle = norm(result.optString("title", ""));
-            String fullTitle = norm(result.optString("full_title", ""));
+            String primaryArtist = songQueryNormalizationService.normalizeForMatch(primaryArtistName(result));
+            String rTitle = songQueryNormalizationService.normalizeForMatch(result.optString("title", ""));
+            String fullTitle = songQueryNormalizationService.normalizeForMatch(result.optString("full_title", ""));
 
             double s = 0.0;
 
@@ -116,7 +115,6 @@ public class GeniusAlbumImageUrlSearchService {
     }
 
     private ImageDecision decideImageUrl(JSONObject result) {
-        // 이 3개 키 중 하나라도 존재하면 “이미지가 없다/있다”를 판단 가능하다고 봄.
         String[] keys = {"song_art_image_url", "song_art_image_thumbnail_url", "header_image_url"};
 
         boolean sawAnyKey = false;
@@ -152,12 +150,10 @@ public class GeniusAlbumImageUrlSearchService {
             throw new BusinessException(ErrorCode.GENIUS_RESPONSE_INVALID, "missing_image_fields");
         }
 
-        // 정상 응답 + 이미지가 없거나(default 포함) unusable → 이 케이스만 trash 허용
         if (sawNullOrDefault) {
             return new ImageDecision(false, null, "NO_IMAGE_URL");
         }
 
-        // 키는 있었는데 usable한 URL이 하나도 없으면 구조/값 이상
         throw new BusinessException(ErrorCode.GENIUS_RESPONSE_INVALID, "image_fields_present_but_unusable");
     }
 
@@ -177,17 +173,6 @@ public class GeniusAlbumImageUrlSearchService {
 
     private boolean isHttp(String s) {
         return s != null && (s.startsWith("http://") || s.startsWith("https://"));
-    }
-
-    private String norm(String s) {
-        if (s == null) return "";
-        String x = s.toLowerCase(Locale.ROOT);
-        x = Normalizer.normalize(x, Normalizer.Form.NFKC);
-        x = x.replaceAll("\\(.*?\\)|\\[.*?\\]|\\{.*?\\}", " ");
-        x = x.replaceAll("\\b(feat\\.|ft\\.|with)\\b.*", " ");
-        x = x.replaceAll("[^0-9a-zA-Z가-힣ㄱ-ㅎㅏ-ㅣぁ-ゔァ-ヴー一-龯々〆〤\\s']", " ");
-        x = x.replaceAll("\\s+", " ").trim();
-        return x;
     }
 
     private record Pick(JSONObject result, double score) {}
