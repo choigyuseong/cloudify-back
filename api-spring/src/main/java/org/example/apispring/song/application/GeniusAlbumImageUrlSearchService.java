@@ -57,10 +57,7 @@ public class GeniusAlbumImageUrlSearchService {
         }
 
         if (pick.score < MIN_CONFIDENCE_SCORE) {
-            throw new BusinessException(
-                    ErrorCode.GENIUS_RESPONSE_INVALID,
-                    "songId=" + songId + " low_confidence bestScore=" + pick.score
-            );
+            return GeniusAlbumImageSearchResult.noImage(pick.score, "LOW_CONFIDENCE");
         }
 
         ImageDecision img = decideImageUrl(pick.result);
