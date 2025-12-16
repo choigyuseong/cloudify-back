@@ -1,13 +1,15 @@
 package org.example.apispring.song.application;
 
-
+import jakarta.annotation.PreDestroy;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.example.apispring.song.web.GeniusClient;
 import org.example.apispring.global.error.BusinessException;
 import org.example.apispring.global.error.ErrorCode;
+import org.example.apispring.song.application.dto.YoutubeAudioFillResultDto;
+import org.example.apispring.song.application.dto.YoutubeVideoThumbFillResultDto;
 import org.example.apispring.song.domain.Song;
 import org.example.apispring.song.domain.SongRepository;
+import org.example.apispring.song.web.GeniusClient;
 import org.json.JSONArray;
 import org.json.JSONObject;
 import org.springframework.data.domain.PageRequest;
@@ -16,8 +18,8 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.text.Normalizer;
-import java.util.List;
-import java.util.Locale;
+import java.util.*;
+import java.util.concurrent.*;
 
 @Slf4j
 @Service
@@ -25,12 +27,21 @@ import java.util.Locale;
 public class FillDbService {
 
     private static final int GENIUS_BATCH_SIZE = 200;
-    private static final int YOUTUBE_BATCH_SIZE = 50;
+    private static final int YOUTUBE_BATCH_SIZE = 10;
+    private static final int YOUTUBE_CONCURRENCY = 4;
+    private static final int YOUTUBE_CALL_TIMEOUT_SEC = 9;
 
     private final SongRepository songRepository;
     private final GeniusClient geniusClient;
     private final YoutubeVideoIdSearchService youtubeVideoIdSearchService;
     private final YoutubeAudioIdSearchService youtubeAudioIdSearchService;
+
+    private final ExecutorService youtubeExecutor = Executors.newFixedThreadPool(YOUTUBE_CONCURRENCY);
+
+    @PreDestroy
+    public void shutdown() {
+        youtubeExecutor.shutdown();
+    }
 
     @Transactional
     public void fillAlbumImagesFromGenius() {
@@ -83,116 +94,172 @@ public class FillDbService {
                     if (be.errorCode() == ErrorCode.GENIUS_API_TOKEN_MISSING) {
                         throw be;
                     }
-                } catch (Exception e) {
+                } catch (Exception ignored) {
                 }
             }
         }
     }
 
-    @Transactional
-    public void fillYoutubeVideoIdAndThumbnail() {
-        while (true) {
-            List<Song> batch = songRepository.findSongsWithMissingVideoIdOrThumbnail(
-                    PageRequest.of(0, YOUTUBE_BATCH_SIZE)
-            );
-            if (batch.isEmpty()) {
-                break;
-            }
-
-            for (Song song : batch) {
-                try {
-                    boolean videoMissing = isBlank(song.getVideoId());
-                    boolean thumbMissing = isBlank(song.getThumbnailImageUrl());
-
-                    if (!videoMissing && !thumbMissing) {
-                        continue;
-                    }
-
-                    if (videoMissing) {
-                        String title = song.getTitle();
-                        String artist = song.getArtist();
-                        if (title == null || artist == null) {
-                            continue;
-                        }
-
-                        String videoId = youtubeVideoIdSearchService.findVideoId(title, artist);
-                        if (isBlank(videoId)) {
-                            continue;
-                        }
-
-                        song.updateVideoId(videoId);
-
-                        if (thumbMissing) {
-                            song.updateThumbnailImageUrl(buildYoutubeThumbnailUrl(videoId));
-                        }
-                    } else {
-                        String videoId = song.getVideoId();
-                        if (!isBlank(videoId) && thumbMissing) {
-                            song.updateThumbnailImageUrl(buildYoutubeThumbnailUrl(videoId));
-                        }
-                    }
-
-                    songRepository.save(song);
-
-                } catch (BusinessException be) {
-                    if (be.errorCode() == ErrorCode.YOUTUBE_API_KEY_MISSING) {
-                        throw be;
-                    }
-                } catch (Exception e) {
-                }
-            }
-        }
+    public YoutubeVideoThumbFillResultDto fillYoutubeVideoIdAndThumbnail() {
+        int thumbFilled = fillThumbnailOnlyBatch();
+        int videoFilled = fillVideoIdAndThumbnailBatch();
+        return new YoutubeVideoThumbFillResultDto(videoFilled, thumbFilled);
     }
 
-    @Transactional
-    public void fillYoutubeAudioId() {
-        while (true) {
-            List<Song> batch = songRepository.findSongsWithMissingAudioId(
-                    PageRequest.of(0, YOUTUBE_BATCH_SIZE)
-            );
-            if (batch.isEmpty()) {
-                break;
-            }
-
-            int updatedThisRound = 0;
-
-            for (Song song : batch) {
-                try {
-                    if (!isBlank(song.getAudioId())) {
-                        continue;
-                    }
-
-                    String title = song.getTitle();
-                    String artist = song.getArtist();
-                    if (title == null || artist == null) {
-                        continue;
-                    }
-
-                    String audioId = youtubeAudioIdSearchService.findAudioId(title, artist);
-
-                    if (isBlank(audioId)) {
-                        continue;
-                    }
-
-                    song.updateAudioId(audioId);
-                    songRepository.save(song);
-                    updatedThisRound++;
-
-                } catch (BusinessException be) {
-                    if (be.errorCode() == ErrorCode.YOUTUBE_API_KEY_MISSING) {
-                        throw be;
-                    }
-                } catch (Exception e) {
-                }
-            }
-            if (updatedThisRound == 0) {
-                log.warn("[fillYoutubeAudioId] updated=0 in this round; stop to avoid infinite loop. batchSize={}", batch.size());
-                break;
-            }
+    public YoutubeAudioFillResultDto fillYoutubeAudioId() {
+        List<Song> batch = songRepository.findSongsWithMissingAudioId(
+                PageRequest.of(0, YOUTUBE_BATCH_SIZE)
+        );
+        if (batch.isEmpty()) {
+            return new YoutubeAudioFillResultDto(0);
         }
+
+        List<AudioLookup> lookups = batch.stream()
+                .filter(s -> isBlank(s.getAudioId()))
+                .filter(s -> !isBlank(s.getTitle()) && !isBlank(s.getArtist()))
+                .map(s -> new AudioLookup(s.getId(), s.getTitle(), s.getArtist()))
+                .toList();
+
+        Map<String, CompletableFuture<String>> futures = new HashMap<>();
+        for (AudioLookup l : lookups) {
+            CompletableFuture<String> f = CompletableFuture
+                    .supplyAsync(() -> youtubeAudioIdSearchService.findAudioId(l.title, l.artist), youtubeExecutor)
+                    .completeOnTimeout(null, YOUTUBE_CALL_TIMEOUT_SEC, TimeUnit.SECONDS);
+            futures.put(l.songId, f);
+        }
+
+        int audioFilled = 0;
+        List<Song> toSave = new ArrayList<>();
+
+        for (Song song : batch) {
+            if (!isBlank(song.getAudioId())) {
+                continue;
+            }
+
+            CompletableFuture<String> f = futures.get(song.getId());
+            if (f == null) {
+                continue;
+            }
+
+            String audioId;
+            try {
+                audioId = f.join();
+            } catch (CompletionException ce) {
+                Throwable cause = ce.getCause();
+                if (cause instanceof BusinessException be && be.errorCode() == ErrorCode.YOUTUBE_API_KEY_MISSING) {
+                    throw be;
+                }
+                continue;
+            }
+
+            if (isBlank(audioId)) {
+                continue;
+            }
+
+            song.updateAudioId(audioId);
+            toSave.add(song);
+            audioFilled++;
+        }
+
+        if (!toSave.isEmpty()) {
+            songRepository.saveAll(toSave);
+        }
+
+        return new YoutubeAudioFillResultDto(audioFilled);
     }
 
+    private int fillThumbnailOnlyBatch() {
+        List<Song> batch = songRepository.findSongsWithMissingThumbnailOnly(
+                PageRequest.of(0, YOUTUBE_BATCH_SIZE)
+        );
+        if (batch.isEmpty()) {
+            return 0;
+        }
 
+        List<Song> toSave = new ArrayList<>();
+        for (Song song : batch) {
+            String videoId = song.getVideoId();
+            if (isBlank(videoId)) {
+                continue;
+            }
+            if (!isBlank(song.getThumbnailImageUrl())) {
+                continue;
+            }
+
+            song.updateThumbnailImageUrl(buildYoutubeThumbnailUrl(videoId));
+            toSave.add(song);
+        }
+
+        if (!toSave.isEmpty()) {
+            songRepository.saveAll(toSave);
+        }
+        return toSave.size();
+    }
+
+    private int fillVideoIdAndThumbnailBatch() {
+        List<Song> batch = songRepository.findSongsWithMissingVideoId(
+                PageRequest.of(0, YOUTUBE_BATCH_SIZE)
+        );
+        if (batch.isEmpty()) {
+            return 0;
+        }
+
+        List<VideoLookup> lookups = batch.stream()
+                .filter(s -> isBlank(s.getVideoId()))
+                .filter(s -> !isBlank(s.getTitle()) && !isBlank(s.getArtist()))
+                .map(s -> new VideoLookup(s.getId(), s.getTitle(), s.getArtist()))
+                .toList();
+
+        Map<String, CompletableFuture<String>> futures = new HashMap<>();
+        for (VideoLookup l : lookups) {
+            CompletableFuture<String> f = CompletableFuture
+                    .supplyAsync(() -> youtubeVideoIdSearchService.findVideoId(l.title, l.artist), youtubeExecutor)
+                    .completeOnTimeout(null, YOUTUBE_CALL_TIMEOUT_SEC, TimeUnit.SECONDS);
+            futures.put(l.songId, f);
+        }
+
+        int videoFilled = 0;
+        List<Song> toSave = new ArrayList<>();
+
+        for (Song song : batch) {
+            if (!isBlank(song.getVideoId())) {
+                continue;
+            }
+
+            CompletableFuture<String> f = futures.get(song.getId());
+            if (f == null) {
+                continue;
+            }
+
+            String videoId;
+            try {
+                videoId = f.join();
+            } catch (CompletionException ce) {
+                Throwable cause = ce.getCause();
+                if (cause instanceof BusinessException be && be.errorCode() == ErrorCode.YOUTUBE_API_KEY_MISSING) {
+                    throw be;
+                }
+                continue;
+            }
+
+            if (isBlank(videoId)) {
+                continue;
+            }
+
+            song.updateVideoId(videoId);
+            song.updateThumbnailImageUrl(buildYoutubeThumbnailUrl(videoId));
+            toSave.add(song);
+            videoFilled++;
+        }
+
+        if (!toSave.isEmpty()) {
+            songRepository.saveAll(toSave);
+        }
+        return videoFilled;
+    }
+
+    private record VideoLookup(String songId, String title, String artist) {}
+    private record AudioLookup(String songId, String title, String artist) {}
 
     private String selectAlbumImageUrl(JSONArray hits) {
         JSONObject best = null;
@@ -304,4 +371,3 @@ public class FillDbService {
         return "https://img.youtube.com/vi/" + videoId + "/hqdefault.jpg";
     }
 }
-
