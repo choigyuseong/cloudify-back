@@ -5,6 +5,7 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.example.apispring.global.error.BusinessException;
 import org.example.apispring.global.error.ErrorCode;
+import org.example.apispring.song.application.dto.GeniusAlbumImageFillResultDto;
 import org.example.apispring.song.application.dto.YoutubeAudioFillResultDto;
 import org.example.apispring.song.application.dto.YoutubeVideoThumbFillResultDto;
 import org.example.apispring.song.domain.Song;
@@ -37,6 +38,7 @@ public class FillDbService {
 
     private final YoutubeVideoIdSearchService youtubeVideoIdSearchService;
     private final YoutubeAudioIdSearchService youtubeAudioIdSearchService;
+    private final SongQueryNormalizationService songQueryNormalizationService;
 
     private final ExecutorService youtubeExecutor = Executors.newFixedThreadPool(YOUTUBE_CONCURRENCY);
 
@@ -46,13 +48,14 @@ public class FillDbService {
     }
 
     @Transactional
-    public void fillAlbumImagesFromGenius() {
+    public GeniusAlbumImageFillResultDto fillAlbumImagesFromGenius(int limit) {
+        int batchSize = Math.max(1, Math.min(limit, GENIUS_BATCH_SIZE));
         final String rid = shortRid();
 
-        List<Song> batch = songRepository.findSongsWithoutAlbumImage(PageRequest.of(0, GENIUS_BATCH_SIZE));
+        List<Song> batch = songRepository.findSongsWithoutAlbumImage(PageRequest.of(0, batchSize));
         if (batch.isEmpty()) {
-            log.info("[GeniusFill:{}] done(no_candidates) limit={}", rid, GENIUS_BATCH_SIZE);
-            return;
+            log.info("[GeniusFill:{}] done(no_candidates) limit={}", rid, batchSize);
+            return new GeniusAlbumImageFillResultDto(batchSize, 0, 0, 0, 0, 0);
         }
 
         int updated = 0;
@@ -96,7 +99,7 @@ public class FillDbService {
                 continue;
             }
 
-            String cleanTitle = cleanTitle(title);
+            String cleanTitle = songQueryNormalizationService.cleanTitle(title);
             if (cleanTitle.isBlank() || cleanTitle.equals(title)) {
                 song.updateAlbumImageUrl("trash");
                 toSave.add(song);
@@ -145,7 +148,15 @@ public class FillDbService {
         }
 
         log.info("[GeniusFill:{}] done limit={} fetched={} updated={} success={} trash={} transientSkip={}",
-                rid, GENIUS_BATCH_SIZE, batch.size(), updated, success, trash, transientSkip);
+                rid, batchSize, batch.size(), updated, success, trash, transientSkip);
+
+        return new GeniusAlbumImageFillResultDto(
+                batchSize,
+                batch.size(),
+                updated,
+                success,
+                trash,
+                transientSkip);
     }
 
     private enum HitsOutcomeType { OK, NO_HITS, TRANSIENT_SKIP }
@@ -205,25 +216,9 @@ public class FillDbService {
         return new HitsOutcome(HitsOutcomeType.OK, hits);
     }
 
-    private String cleanTitle(String title) {
-        if (title == null) return "";
-        String t = title;
-
-        t = t.replaceAll("\\s*\\(.*?\\)\\s*", " ");
-        t = t.replaceAll("\\s*\\[.*?\\]\\s*", " ");
-        t = t.replaceAll("\\s*\\{.*?\\}\\s*", " ");
-
-        t = t.replaceAll("\\s+[-–—]\\s+.*$", "");
-
-        t = t.replaceAll("(?i)\\b(feat\\.|ft\\.|featuring|with|prod\\.|produced by)\\b.*$", "");
-
-        t = t.replaceAll("\\s+", " ").trim();
-        return t;
-    }
-
     private GeniusPick selectAlbumImage(JSONArray hits, String title, String artist, String rid, String songId) {
-        String wantTitle = norm(title);
-        String wantArtist = norm(artist);
+        String wantTitle = songQueryNormalizationService.normalizeForMatch(title);
+        String wantArtist = songQueryNormalizationService.normalizeForMatch(artist);
 
         String bestArt = null;
         double bestScore = -999.0;
@@ -244,9 +239,9 @@ public class FillDbService {
                 continue;
             }
 
-            String primaryArtist = norm(primaryArtistName(result));
-            String rTitle = norm(result.optString("title", ""));
-            String fullTitle = norm(result.optString("full_title", ""));
+            String primaryArtist = songQueryNormalizationService.normalizeForMatch(primaryArtistName(result));
+            String rTitle = songQueryNormalizationService.normalizeForMatch(result.optString("title", ""));
+            String fullTitle = songQueryNormalizationService.normalizeForMatch(result.optString("full_title", ""));
 
             double s = 0.0;
 
@@ -293,9 +288,9 @@ public class FillDbService {
             String art = pickArtUrl(result);
             if (art == null || isDefaultGeniusImage(art)) continue;
 
-            String primaryArtist = norm(primaryArtistName(result));
-            String rTitle = norm(result.optString("title", ""));
-            String fullTitle = norm(result.optString("full_title", ""));
+            String primaryArtist = songQueryNormalizationService.normalizeForMatch(primaryArtistName(result));
+            String rTitle = songQueryNormalizationService.normalizeForMatch(result.optString("title", ""));
+            String fullTitle = songQueryNormalizationService.normalizeForMatch(result.optString("full_title", ""));
 
             double s = 0.0;
 
@@ -495,16 +490,6 @@ public class FillDbService {
         return s == null || s.isBlank();
     }
 
-    private String norm(String s) {
-        if (s == null) return "";
-        String x = s.toLowerCase(Locale.ROOT);
-        x = Normalizer.normalize(x, Normalizer.Form.NFKC);
-        x = x.replaceAll("\\(.*?\\)|\\[.*?\\]|\\{.*?\\}", " ");
-        x = x.replaceAll("\\b(feat\\.|ft\\.|with)\\b.*", " ");
-        x = x.replaceAll("[^0-9a-zA-Z가-힣ㄱ-ㅎㅏ-ㅣぁ-ゔァ-ヴー一-龯々〆〤\\s']", " ");
-        x = x.replaceAll("\\s+", " ").trim();
-        return x;
-    }
 
     private String buildYoutubeThumbnailUrl(String videoId) {
         if (videoId == null || videoId.isBlank()) return null;
