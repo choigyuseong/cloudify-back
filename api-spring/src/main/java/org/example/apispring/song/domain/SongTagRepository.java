@@ -10,29 +10,44 @@ import java.util.List;
 public interface SongTagRepository extends JpaRepository<SongTag, Long> {
 
     @Query("""
-        SELECT st
-        FROM SongTag st
-        JOIN FETCH st.song s
-        WHERE st.mood = :mood
-          AND st.branch = :branch
-          AND (
-                (CASE WHEN st.genre    = :genre    THEN 1 ELSE 0 END) +
-                (CASE WHEN st.activity = :activity THEN 1 ELSE 0 END) +
-                (CASE WHEN st.tempo    = :tempo    THEN 1 ELSE 0 END)
-              ) >= :minOptionalMatchCount
-        ORDER BY
-              (CASE WHEN st.genre    = :genre    THEN 1 ELSE 0 END) +
-              (CASE WHEN st.activity = :activity THEN 1 ELSE 0 END) +
-              (CASE WHEN st.tempo    = :tempo    THEN 1 ELSE 0 END) DESC,
-              s.createdAt DESC
-        """)
-    List<SongTag> findByMoodBranchAndOptionalMatchesAtLeast(
+    SELECT st
+    FROM SongTag st
+    JOIN FETCH st.song s
+    WHERE st.mood = :mood
+      AND st.branch = :branch
+      AND st.activity = :activity
+      AND st.tempo = :tempo
+      AND st.genre = :genre
+    ORDER BY s.createdAt DESC
+    """)
+    List<SongTag> findStrongByMoodBranchActivityTempoAndGenre(
             @Param("mood") String mood,
-            @Param("genre") String genre,
-            @Param("activity") String activity,
             @Param("branch") String branch,
+            @Param("activity") String activity,
             @Param("tempo") String tempo,
-            @Param("minOptionalMatchCount") int minOptionalMatchCount,
+            @Param("genre") String genre,
+            Pageable pageable
+    );
+
+    @Query("""
+    SELECT st
+    FROM SongTag st
+    JOIN FETCH st.song s
+    WHERE st.mood = :mood
+      AND st.branch = :branch
+      AND st.genre = :genre
+      AND (
+            (st.activity = :activity AND (st.tempo <> :tempo OR st.tempo IS NULL))
+         OR (st.tempo = :tempo AND (st.activity <> :activity OR st.activity IS NULL))
+      )
+    ORDER BY s.createdAt DESC
+    """)
+    List<SongTag> findWeakByMoodBranchOneMatchAndGenre(
+            @Param("mood") String mood,
+            @Param("branch") String branch,
+            @Param("activity") String activity,
+            @Param("tempo") String tempo,
+            @Param("genre") String genre,
             Pageable pageable
     );
 }
