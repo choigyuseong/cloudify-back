@@ -4,7 +4,7 @@ import jakarta.annotation.PreDestroy;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.example.apispring.global.error.BusinessException;
-import org.example.apispring.song.application.GeniusAlbumImageUrlSearchService.GeniusAlbumImageSearchResult;
+import org.example.apispring.global.error.ErrorCode;
 import org.example.apispring.song.application.dto.GeniusAlbumImageFillResultDto;
 import org.example.apispring.song.application.dto.YoutubeAudioFillResultDto;
 import org.example.apispring.song.application.dto.YoutubeVideoThumbFillResultDto;
@@ -31,6 +31,7 @@ public class FillDbService {
     private static final int YOUTUBE_CALL_TIMEOUT_SEC = 9;
 
     private final SongRepository songRepository;
+
     private final GeniusClient geniusClient;
     private final GeniusAlbumImageUrlSearchService geniusAlbumImageUrlSearchService;
     private final SongQueryNormalizationService songQueryNormalizationService;
@@ -47,19 +48,18 @@ public class FillDbService {
 
     @Transactional
     public GeniusAlbumImageFillResultDto fillAlbumImagesFromGenius(int limit) {
-        int batchSize = clamp(limit, 1, GENIUS_BATCH_SIZE);
+        int requestedLimit = clamp(limit, 1, GENIUS_BATCH_SIZE);
         String rid = shortRid();
 
-        List<Song> batch = songRepository.findSongsWithoutAlbumImage(PageRequest.of(0, batchSize));
+        List<Song> batch = songRepository.findSongsWithoutAlbumImage(PageRequest.of(0, requestedLimit));
         if (batch.isEmpty()) {
-            log.info("[GeniusFill:{}] done(no_candidates) limit={}", rid, batchSize);
-            return new GeniusAlbumImageFillResultDto(batchSize, 0, 0, 0, 0, 0);
+            return new GeniusAlbumImageFillResultDto(requestedLimit, 0, 0, 0, 0, 0);
         }
 
-        int updated = 0;
         int success = 0;
         int trash = 0;
         int transientSkip = 0;
+        int failures = 0;
 
         List<Song> toSave = new ArrayList<>(batch.size());
 
@@ -72,43 +72,50 @@ public class FillDbService {
             if ((artist + title).isBlank()) {
                 song.updateAlbumImageUrl("trash");
                 toSave.add(song);
-                updated++;
                 trash++;
                 continue;
             }
 
             String cleanTitle = songQueryNormalizationService.cleanTitle(title);
-
             List<QueryAttempt> attempts = buildGeniusQueryAttempts(artist, title, cleanTitle);
 
             String selectedUrl = null;
-            boolean sawNoImageOrNoHitsOnly = true;
+            boolean onlyTrashReasons = true;
+            boolean transientError = false;
 
             for (QueryAttempt attempt : attempts) {
-                ResponseEntity<String> res;
                 try {
-                    res = geniusClient.search(attempt.query());
+                    ResponseEntity<String> res = geniusClient.search(attempt.query());
+
+                    var r = geniusAlbumImageUrlSearchService.extractAlbumImageUrl(
+                            res,
+                            attempt.titleForScoring(),
+                            artist,
+                            rid,
+                            songId
+                    );
+
+                    if (r.found()) {
+                        selectedUrl = r.url();
+                        break;
+                    }
+
+                    if (isTrashAllowedReason(r.reason())) {
+                        continue;
+                    }
+
+                    onlyTrashReasons = false;
+
                 } catch (BusinessException be) {
-                    throw be;
-                } catch (Exception e) {
-                    throw e;
-                }
-
-                GeniusAlbumImageSearchResult r = geniusAlbumImageUrlSearchService.extractAlbumImageUrl(
-                        res,
-                        attempt.titleForScoring(),
-                        artist,
-                        rid,
-                        songId
-                );
-
-                if (r.found()) {
-                    selectedUrl = r.url();
+                    if (be.errorCode() == ErrorCode.GENIUS_API_TOKEN_MISSING) {
+                        throw be;
+                    }
+                    transientError = true;
+                    log.warn("[GeniusFill:{}] songId={} transient_skip code={} msg={}", rid, songId, be.errorCode().name(), be.getMessage());
                     break;
-                }
-
-                if (!"NO_HITS".equals(r.reason()) && !"NO_IMAGE_URL".equals(r.reason())) {
-                    sawNoImageOrNoHitsOnly = false;
+                } catch (Exception e) {
+                    transientError = true;
+                    log.warn("[GeniusFill:{}] songId={} transient_skip ex={} msg={}", rid, songId, e.getClass().getSimpleName(), e.getMessage());
                     break;
                 }
             }
@@ -116,18 +123,21 @@ public class FillDbService {
             if (selectedUrl != null && !selectedUrl.isBlank()) {
                 song.updateAlbumImageUrl(selectedUrl);
                 toSave.add(song);
-                updated++;
                 success++;
                 continue;
             }
 
-            if (sawNoImageOrNoHitsOnly) {
+            if (transientError) {
+                transientSkip++;
+                continue;
+            }
+
+            if (onlyTrashReasons) {
                 song.updateAlbumImageUrl("trash");
                 toSave.add(song);
-                updated++;
                 trash++;
             } else {
-                transientSkip++;
+                failures++;
             }
         }
 
@@ -135,16 +145,13 @@ public class FillDbService {
             songRepository.saveAll(toSave);
         }
 
-        log.info("[GeniusFill:{}] done limit={} fetched={} updated={} success={} trash={} transientSkip={}",
-                rid, batchSize, batch.size(), updated, success, trash, transientSkip);
-
         return new GeniusAlbumImageFillResultDto(
-                batchSize,
+                requestedLimit,
                 batch.size(),
-                updated,
                 success,
                 trash,
-                transientSkip
+                transientSkip,
+                failures
         );
     }
 
@@ -177,6 +184,10 @@ public class FillDbService {
 
     private String join(String left, String right) {
         return (nullToEmpty(left).trim() + " " + nullToEmpty(right).trim()).trim();
+    }
+
+    private boolean isTrashAllowedReason(String reason) {
+        return "NO_HITS".equals(reason) || "NO_IMAGE_URL".equals(reason);
     }
 
     public YoutubeVideoThumbFillResultDto fillYoutubeVideoIdAndThumbnail() {
@@ -217,9 +228,7 @@ public class FillDbService {
                 audioId = f.join();
             } catch (CompletionException ce) {
                 Throwable cause = ce.getCause();
-                if (cause instanceof BusinessException be) {
-                    throw be;
-                }
+                if (cause instanceof BusinessException be) throw be;
                 continue;
             }
 
@@ -285,9 +294,7 @@ public class FillDbService {
                 videoId = f.join();
             } catch (CompletionException ce) {
                 Throwable cause = ce.getCause();
-                if (cause instanceof BusinessException be) {
-                    throw be;
-                }
+                if (cause instanceof BusinessException be) throw be;
                 continue;
             }
 
@@ -307,12 +314,12 @@ public class FillDbService {
     private record VideoLookup(String songId, String title, String artist) {}
     private record AudioLookup(String songId, String title, String artist) {}
 
-    private static String shortRid() {
-        return UUID.randomUUID().toString().substring(0, 8);
-    }
-
     private static int clamp(int v, int min, int max) {
         return Math.max(min, Math.min(max, v));
+    }
+
+    private static String shortRid() {
+        return UUID.randomUUID().toString().substring(0, 8);
     }
 
     private static String nullToEmpty(String s) {
