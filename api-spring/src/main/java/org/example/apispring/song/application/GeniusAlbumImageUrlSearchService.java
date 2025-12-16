@@ -48,9 +48,8 @@ public class GeniusAlbumImageUrlSearchService {
             throw new BusinessException(ErrorCode.GENIUS_RESPONSE_INVALID, "songId=" + songId + " missing_hits");
         }
 
-        if (hits.length() == 0) {
-            // “이미지가 없다”가 아니라 “검색 매칭 자체가 안됐다”일 수 있으므로 trash 금지
-            throw new BusinessException(ErrorCode.GENIUS_RESPONSE_INVALID, "songId=" + songId + " no_hits");
+        if (hits.isEmpty()) {
+            return GeniusAlbumImageSearchResult.noImage(-999.0, "NO_HITS");
         }
 
         Pick pick = selectBestHit(hits, title, artist);
@@ -59,7 +58,6 @@ public class GeniusAlbumImageUrlSearchService {
         }
 
         if (pick.score < MIN_CONFIDENCE_SCORE) {
-            // 낮은 신뢰도로 “이미지 없음” 확정하면 위험 → trash 금지
             throw new BusinessException(
                     ErrorCode.GENIUS_RESPONSE_INVALID,
                     "songId=" + songId + " low_confidence bestScore=" + pick.score
