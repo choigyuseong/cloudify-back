@@ -24,7 +24,7 @@ public class GeniusClient {
 
     private static final String SEARCH_ENDPOINT = "https://api.genius.com/search";
 
-    public GeniusClient(@Qualifier("externalApiRestTemplate") RestTemplate restTemplate) {
+    public GeniusClient(@Qualifier("geniusRestTemplate") RestTemplate restTemplate) {
         this.restTemplate = restTemplate;
     }
 

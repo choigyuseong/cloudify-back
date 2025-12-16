@@ -27,6 +27,12 @@ public class RestTemplateConfig {
     }
 
     @Bean
+    @Qualifier("geniusRestTemplate")
+    public RestTemplate geniusRestTemplate() {
+        return buildRestTemplate(3, 6, 100, 30);
+    }
+
+    @Bean
     @Qualifier("youtubeRestTemplate")
     public RestTemplate youtubeRestTemplate() {
         return buildRestTemplate(3, 8, 100, 30);
