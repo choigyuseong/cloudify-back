@@ -29,7 +29,7 @@ public class FillDbService {
     // -----------------------------
     // Batch / Concurrency
     // -----------------------------
-    private static final int GENIUS_BATCH_SIZE = 200;
+    private static final int GENIUS_BATCH_SIZE = 100;
 
     private static final int YOUTUBE_BATCH_SIZE = 10;
     private static final int YOUTUBE_CONCURRENCY = 4;
