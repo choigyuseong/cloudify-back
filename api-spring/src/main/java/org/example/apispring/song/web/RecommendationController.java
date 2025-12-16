@@ -24,17 +24,10 @@ public class RecommendationController {
     private final RecommendationService recommendationService;
 
     @PostMapping("/by-text")
-    public ResponseEntity<List<SongResponseDto>> recommendByText(
-            @RequestBody LlmTextRequestDto request
-    ) {
+    public ResponseEntity<List<SongResponseDto>> recommendByText(@RequestBody LlmTextRequestDto request) {
         LlmTagResponseDto tags = geminiService.inferTags(request.text());
-
         List<SongResponseDto> songs = recommendationService.recommend(tags);
-
-        if (songs.isEmpty()) {
-            return ResponseEntity.noContent().build();
-        }
-
         return ResponseEntity.ok(songs);
     }
+
 }
