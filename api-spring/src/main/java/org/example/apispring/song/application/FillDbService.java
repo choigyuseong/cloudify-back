@@ -13,7 +13,6 @@ import org.example.apispring.song.web.GeniusClient;
 import org.json.JSONArray;
 import org.json.JSONObject;
 import org.springframework.data.domain.PageRequest;
-import org.springframework.http.HttpStatusCode;
 import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -27,11 +26,33 @@ import java.util.concurrent.*;
 @RequiredArgsConstructor
 public class FillDbService {
 
+    // -----------------------------
+    // Batch / Concurrency
+    // -----------------------------
     private static final int GENIUS_BATCH_SIZE = 200;
+
+    private static final int YOUTUBE_BATCH_SIZE = 10;
+    private static final int YOUTUBE_CONCURRENCY = 4;
+    private static final int YOUTUBE_CALL_TIMEOUT_SEC = 9;
 
     private final SongRepository songRepository;
     private final GeniusClient geniusClient;
 
+    private final YoutubeVideoIdSearchService youtubeVideoIdSearchService;
+    private final YoutubeAudioIdSearchService youtubeAudioIdSearchService;
+
+    private final ExecutorService youtubeExecutor = Executors.newFixedThreadPool(YOUTUBE_CONCURRENCY);
+
+    @PreDestroy
+    public void shutdown() {
+        youtubeExecutor.shutdown();
+    }
+
+    // =========================================================
+    // 1) GENIUS - Album Image Fill
+    //   - trash 확정은 "진짜 결과 없음"에만: blank_query / no_hits
+    //   - 후보는 있는데 선택 실패(NO_USABLE_ART)는 trash로 박지 않고 skip(재시도 여지)
+    // =========================================================
     @Transactional
     public void fillAlbumImagesFromGenius() {
         final String rid = shortRid();
@@ -49,7 +70,7 @@ public class FillDbService {
 
             List<Song> batch = songRepository.findSongsWithoutAlbumImage(PageRequest.of(0, GENIUS_BATCH_SIZE));
             if (batch.isEmpty()) {
-                log.info("[GeniusFill:{}] done. no more candidates. rounds={} updated={} success={} trash={} transientSkip={}",
+                log.info("[GeniusFill:{}] done(no_more_candidates). rounds={} updated={} success={} trash={} transientSkip={}",
                         rid, round, totalUpdated, totalSuccess, totalTrash, totalTransientSkip);
                 break;
             }
@@ -67,10 +88,10 @@ public class FillDbService {
                 final String songId = song.getId();
 
                 String artist = nullToEmpty(song.getArtist()).trim();
-                String title = nullToEmpty(song.getTitle()).trim();
-                String query = (artist + " " + title).trim();
+                String title  = nullToEmpty(song.getTitle()).trim();
+                String query  = (artist + " " + title).trim();
 
-                // (A) 진짜로 검색 불가능(데이터 결함) → trash 확정
+                // (A) 데이터 결함 → trash 확정
                 if (query.isBlank()) {
                     log.warn("[GeniusFill:{}] songId={} trash(reason=blank_query) artist='{}' title='{}'",
                             rid, songId, artist, title);
@@ -88,7 +109,7 @@ public class FillDbService {
                         log.error("[GeniusFill:{}] token missing -> abort", rid);
                         throw be;
                     }
-                    // 네트워크/클라이언트 예외: transient로 보고 건드리지 않음(재시도)
+                    // 업스트림/클라이언트 이슈는 transient로 보고 skip
                     log.warn("[GeniusFill:{}] songId={} transient_skip(reason=business_exception) code={} msg={} query='{}'",
                             rid, songId, be.errorCode().name(), be.getMessage(), query);
                     transientSkipThisRound++;
@@ -109,7 +130,6 @@ public class FillDbService {
 
                 int sc = res.getStatusCode().value();
                 if (sc < 200 || sc >= 300) {
-                    // 업스트림 상태 이상: trash 확정 X (재시도)
                     log.warn("[GeniusFill:{}] songId={} transient_skip(reason=non_2xx) status={} bodyPrefix={}",
                             rid, songId, sc, safePrefix(res.getBody(), 200));
                     transientSkipThisRound++;
@@ -147,16 +167,13 @@ public class FillDbService {
                     continue;
                 }
 
-                // (C) 후보 선택 + 상세 로그
+                // (C) 후보는 있는데 선택 실패는 trash로 확정하지 않고 skip(로직/매칭 개선 여지)
                 GeniusPick pick = selectAlbumImage(hits, title, artist, rid, songId);
 
-                if (pick.url() == null || pick.url().isBlank()) {
-                    // “후보는 있지만 쓸 이미지가 없음” → 결과 없음으로 보고 trash 확정
-                    log.info("[GeniusFill:{}] songId={} trash(reason={}) bestScore={} query='{}'",
+                if (isBlank(pick.url())) {
+                    log.info("[GeniusFill:{}] songId={} transient_skip(reason={}) bestScore={} query='{}'",
                             rid, songId, pick.reason(), pick.bestScore(), query);
-                    song.updateAlbumImageUrl("trash");
-                    toSave.add(song);
-                    updatedThisRound++; trashThisRound++;
+                    transientSkipThisRound++;
                     continue;
                 }
 
@@ -180,7 +197,7 @@ public class FillDbService {
             log.info("[GeniusFill:{}] round={} saved={} (success={} trash={}) transientSkip={}",
                     rid, round, updatedThisRound, successThisRound, trashThisRound, transientSkipThisRound);
 
-            // 무한루프 방지: 이번 라운드에 DB 변경이 0이면 종료(전부 transient 실패였다는 뜻)
+            // “이번 라운드에 저장 0”이면 종료(전부 transient였음)
             if (updatedThisRound == 0) {
                 log.warn("[GeniusFill:{}] stop(no_progress). round={} transientSkip={} fetched={}",
                         rid, round, transientSkipThisRound, batch.size());
@@ -189,24 +206,20 @@ public class FillDbService {
         }
     }
 
-    // ---------------------------------------
-    // 후보 선택 + 로그
-    // ---------------------------------------
     private GeniusPick selectAlbumImage(JSONArray hits, String title, String artist, String rid, String songId) {
-        String wantTitle = norm(title);
+        String wantTitle  = norm(title);
         String wantArtist = norm(artist);
 
-        JSONObject best = null;
-        double bestScore = -1.0;
         String bestArt = null;
+        double bestScore = -999.0;
 
         int considered = 0;
         int skippedDefault = 0;
-        int skippedArtistMismatch = 0;
 
         for (int i = 0; i < hits.length(); i++) {
             JSONObject hit = hits.optJSONObject(i);
             if (hit == null) continue;
+
             JSONObject result = hit.optJSONObject("result");
             if (result == null) continue;
 
@@ -222,22 +235,22 @@ public class FillDbService {
 
             double s = 0.0;
 
-            // 아티스트 정합성 (너무 다르면 스킵)
+            // 아티스트 정합성: "하드 스킵" 대신 "소프트 패널티"
+            // (리팩터링 후 전부 trash 되는 케이스에서 가장 흔한 원인)
             if (!wantArtist.isEmpty() && !primaryArtist.isEmpty()) {
                 if (primaryArtist.equals(wantArtist)) s += 0.60;
                 else if (primaryArtist.contains(wantArtist) || wantArtist.contains(primaryArtist)) s += 0.45;
-                else {
-                    skippedArtistMismatch++;
-                    continue;
-                }
+                else s -= 0.20; // mismatch penalty
             }
 
+            // 제목 정합성
             if (!wantTitle.isEmpty()) {
                 if (rTitle.equals(wantTitle)) s += 0.30;
                 else if (rTitle.contains(wantTitle) || fullTitle.contains(wantTitle)) s += 0.20;
             }
 
-            String noisy = rTitle + " " + fullTitle;
+            // 노이즈 패널티
+            String noisy = (rTitle + " " + fullTitle);
             if (noisy.matches(".*\\b(live|cover|remix|nightcore|sped up|lyrics)\\b.*")) s -= 0.25;
 
             considered++;
@@ -249,21 +262,21 @@ public class FillDbService {
 
             if (s > bestScore) {
                 bestScore = s;
-                best = result;
                 bestArt = art;
             }
         }
 
-        if (bestArt != null && !bestArt.isBlank()) {
-            log.debug("[GeniusPick:{}] songId={} selected score={} considered={} skipDefault={} skipArtistMismatch={}",
-                    rid, songId, bestScore, considered, skippedDefault, skippedArtistMismatch);
+        if (!isBlank(bestArt)) {
+            log.debug("[GeniusPick:{}] songId={} selected score={} considered={} skipDefault={}",
+                    rid, songId, bestScore, considered, skippedDefault);
             return new GeniusPick(bestArt, bestScore, "SELECTED_BEST");
         }
 
-        // fallback: 점수 threshold(0.2) 이상만
+        // fallback: 최소 점수 threshold 이상만
         for (int i = 0; i < hits.length(); i++) {
             JSONObject hit = hits.optJSONObject(i);
             if (hit == null) continue;
+
             JSONObject result = hit.optJSONObject("result");
             if (result == null) continue;
 
@@ -275,6 +288,7 @@ public class FillDbService {
             String fullTitle = norm(result.optString("full_title", ""));
 
             double s = 0.0;
+
             if (!wantArtist.isEmpty() && !primaryArtist.isEmpty()) {
                 if (primaryArtist.equals(wantArtist)) s += 0.60;
                 else if (primaryArtist.contains(wantArtist) || wantArtist.contains(primaryArtist)) s += 0.45;
@@ -284,23 +298,151 @@ public class FillDbService {
                 else if (rTitle.contains(wantTitle) || fullTitle.contains(wantTitle)) s += 0.20;
             }
 
-            if (s >= 0.2) {
+            if (s >= 0.20) {
                 log.debug("[GeniusPick:{}] songId={} fallback_selected score={} art={}", rid, songId, s, art);
                 return new GeniusPick(art, s, "SELECTED_FALLBACK");
             }
         }
 
-        // 후보는 있는데 usable 이미지가 없음
-        log.debug("[GeniusPick:{}] songId={} no_usable_art hits={} considered={} skipDefault={} skipArtistMismatch={}",
-                rid, songId, hits.length(), considered, skippedDefault, skippedArtistMismatch);
         return new GeniusPick(null, bestScore, "NO_USABLE_ART");
     }
 
     private record GeniusPick(String url, double bestScore, String reason) {}
 
-    // ---------------------------------------
-    // 유틸
-    // ---------------------------------------
+    // =========================================================
+    // 2) YOUTUBE - 유지: 기존 Controller가 호출하는 public 메서드들
+    // =========================================================
+    public YoutubeVideoThumbFillResultDto fillYoutubeVideoIdAndThumbnail() {
+        int thumbFilled = fillThumbnailOnlyBatch();
+        int videoFilled = fillVideoIdAndThumbnailBatch();
+        return new YoutubeVideoThumbFillResultDto(videoFilled, thumbFilled);
+    }
+
+    public YoutubeAudioFillResultDto fillYoutubeAudioId() {
+        List<Song> batch = songRepository.findSongsWithMissingAudioId(PageRequest.of(0, YOUTUBE_BATCH_SIZE));
+        if (batch.isEmpty()) return new YoutubeAudioFillResultDto(0);
+
+        List<AudioLookup> lookups = batch.stream()
+                .filter(s -> isBlank(s.getAudioId()))
+                .filter(s -> !isBlank(s.getTitle()) && !isBlank(s.getArtist()))
+                .map(s -> new AudioLookup(s.getId(), s.getTitle(), s.getArtist()))
+                .toList();
+
+        Map<String, CompletableFuture<String>> futures = new HashMap<>();
+        for (AudioLookup l : lookups) {
+            CompletableFuture<String> f = CompletableFuture
+                    .supplyAsync(() -> youtubeAudioIdSearchService.findAudioId(l.title, l.artist), youtubeExecutor)
+                    .completeOnTimeout(null, YOUTUBE_CALL_TIMEOUT_SEC, TimeUnit.SECONDS);
+            futures.put(l.songId, f);
+        }
+
+        int audioFilled = 0;
+        List<Song> toSave = new ArrayList<>();
+
+        for (Song song : batch) {
+            if (!isBlank(song.getAudioId())) continue;
+
+            CompletableFuture<String> f = futures.get(song.getId());
+            if (f == null) continue;
+
+            String audioId;
+            try {
+                audioId = f.join();
+            } catch (CompletionException ce) {
+                Throwable cause = ce.getCause();
+                if (cause instanceof BusinessException be && be.errorCode() == ErrorCode.YOUTUBE_API_KEY_MISSING) {
+                    throw be;
+                }
+                continue;
+            }
+
+            if (isBlank(audioId)) continue;
+
+            song.updateAudioId(audioId);
+            toSave.add(song);
+            audioFilled++;
+        }
+
+        if (!toSave.isEmpty()) songRepository.saveAll(toSave);
+
+        return new YoutubeAudioFillResultDto(audioFilled);
+    }
+
+    private int fillThumbnailOnlyBatch() {
+        List<Song> batch = songRepository.findSongsWithMissingThumbnailOnly(PageRequest.of(0, YOUTUBE_BATCH_SIZE));
+        if (batch.isEmpty()) return 0;
+
+        List<Song> toSave = new ArrayList<>();
+        for (Song song : batch) {
+            String videoId = song.getVideoId();
+            if (isBlank(videoId)) continue;
+            if (!isBlank(song.getThumbnailImageUrl())) continue;
+
+            song.updateThumbnailImageUrl(buildYoutubeThumbnailUrl(videoId));
+            toSave.add(song);
+        }
+
+        if (!toSave.isEmpty()) songRepository.saveAll(toSave);
+        return toSave.size();
+    }
+
+    private int fillVideoIdAndThumbnailBatch() {
+        List<Song> batch = songRepository.findSongsWithMissingVideoId(PageRequest.of(0, YOUTUBE_BATCH_SIZE));
+        if (batch.isEmpty()) return 0;
+
+        List<VideoLookup> lookups = batch.stream()
+                .filter(s -> isBlank(s.getVideoId()))
+                .filter(s -> !isBlank(s.getTitle()) && !isBlank(s.getArtist()))
+                .map(s -> new VideoLookup(s.getId(), s.getTitle(), s.getArtist()))
+                .toList();
+
+        Map<String, CompletableFuture<String>> futures = new HashMap<>();
+        for (VideoLookup l : lookups) {
+            CompletableFuture<String> f = CompletableFuture
+                    .supplyAsync(() -> youtubeVideoIdSearchService.findVideoId(l.title, l.artist), youtubeExecutor)
+                    .completeOnTimeout(null, YOUTUBE_CALL_TIMEOUT_SEC, TimeUnit.SECONDS);
+            futures.put(l.songId, f);
+        }
+
+        int videoFilled = 0;
+        List<Song> toSave = new ArrayList<>();
+
+        for (Song song : batch) {
+            if (!isBlank(song.getVideoId())) continue;
+
+            CompletableFuture<String> f = futures.get(song.getId());
+            if (f == null) continue;
+
+            String videoId;
+            try {
+                videoId = f.join();
+            } catch (CompletionException ce) {
+                Throwable cause = ce.getCause();
+                if (cause instanceof BusinessException be && be.errorCode() == ErrorCode.YOUTUBE_API_KEY_MISSING) {
+                    throw be;
+                }
+                continue;
+            }
+
+            if (isBlank(videoId)) continue;
+
+            song.updateVideoId(videoId);
+            song.updateThumbnailImageUrl(buildYoutubeThumbnailUrl(videoId));
+            toSave.add(song);
+            videoFilled++;
+        }
+
+        if (!toSave.isEmpty()) songRepository.saveAll(toSave);
+
+        return videoFilled;
+    }
+
+    private record VideoLookup(String songId, String title, String artist) {}
+    private record AudioLookup(String songId, String title, String artist) {}
+
+    // =========================================================
+    // Util
+    // =========================================================
     private static String shortRid() {
         return UUID.randomUUID().toString().substring(0, 8);
     }
@@ -345,6 +487,10 @@ public class FillDbService {
         return s != null && (s.startsWith("http://") || s.startsWith("https://"));
     }
 
+    private boolean isBlank(String s) {
+        return s == null || s.isBlank();
+    }
+
     private String norm(String s) {
         if (s == null) return "";
         String x = s.toLowerCase(Locale.ROOT);
@@ -354,5 +500,10 @@ public class FillDbService {
         x = x.replaceAll("[^0-9a-zA-Z가-힣ㄱ-ㅎㅏ-ㅣぁ-ゔァ-ヴー一-龯々〆〤\\s']", " ");
         x = x.replaceAll("\\s+", " ").trim();
         return x;
+    }
+
+    private String buildYoutubeThumbnailUrl(String videoId) {
+        if (videoId == null || videoId.isBlank()) return null;
+        return "https://img.youtube.com/vi/" + videoId + "/hqdefault.jpg";
     }
 }
