@@ -1,6 +1,5 @@
-package org.example.apispring.song.application;
-
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.example.apispring.global.error.BusinessException;
 import org.example.apispring.global.error.ErrorCode;
 import org.example.apispring.song.application.dto.LlmTagResponseDto;
@@ -14,8 +13,10 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.*;
-import java.util.stream.Collectors;
+import java.util.concurrent.ThreadLocalRandom;
+import java.util.function.Supplier;
 
+@Slf4j
 @Service
 @RequiredArgsConstructor
 @Transactional(readOnly = true)
@@ -39,106 +40,180 @@ public class RecommendationService {
             "TEMPO", 0.05
     );
 
-    private static final String GENRE_UNKNOWN = "unknown"; // TagEnums.GENRE_UNKNOWN 쓰면 이 줄 제거 가능
-
-    private final Random random = new Random();
+    private static final String GENRE_UNKNOWN = "unknown";
 
     public List<SongResponseDto> recommend(LlmTagResponseDto tags) {
+        String rid = shortRid();
+        long t0 = System.nanoTime();
+
+        log.info("[Recommend:{}] start tags={}", rid, summarize(tags));
+
         try {
-            return doRecommend(tags);
-        } catch (BusinessException | DataAccessException e) {
+            List<SongResponseDto> result = doRecommend(tags, rid);
+            log.info("[Recommend:{}] success resultSize={} elapsedMs={}",
+                    rid, result.size(), elapsedMs(t0));
+            return result;
+
+        } catch (BusinessException e) {
+            // 응답 바디에는 message가 안 실릴 수 있으니(현재 핸들러 구조상) 서버 로그에 남기는 게 핵심
+            log.warn("[Recommend:{}] business_error code={} msg={}",
+                    rid, e.errorCode().name(), e.getMessage());
             throw e;
+
+        } catch (DataAccessException e) {
+            log.error("[Recommend:{}] db_error type={} msg={}",
+                    rid, e.getClass().getSimpleName(), e.getMessage(), e);
+            throw e;
+
         } catch (Exception e) {
-            throw new BusinessException(
-                    ErrorCode.RECOMMENDATION_INTERNAL_ERROR,
-                    "Unexpected error during recommendation: " + e.getClass().getSimpleName() + " - " + e.getMessage()
-            );
+            log.error("[Recommend:{}] unexpected_error type={} msg={}",
+                    rid, e.getClass().getSimpleName(), e.getMessage(), e);
+
+            // 응답은 기존 정책 유지: 1599(RECOMMENDATION_INTERNAL_ERROR) :contentReference[oaicite:2]{index=2}
+            throw new BusinessException(ErrorCode.RECOMMENDATION_INTERNAL_ERROR);
         }
     }
 
-    private List<SongResponseDto> doRecommend(LlmTagResponseDto tags) {
+    private List<SongResponseDto> doRecommend(LlmTagResponseDto tags, String rid) {
         if (tags == null) {
+            log.warn("[Recommend:{}] tags is null", rid);
             throw new BusinessException(ErrorCode.VALIDATION_ERROR, "LlmTagResponseDto must not be null");
         }
 
-        // 1) 후보 20개 구성 (강/약 + genre 우선 + unknown 보충)
-        List<SongTag> candidateTags = buildCandidates20(tags);
+        // 1) 후보 20개 구성
+        log.info("[Recommend:{}] buildCandidates20 begin", rid);
+        List<SongTag> candidateTags = buildCandidates20(tags, rid);
+        log.info("[Recommend:{}] buildCandidates20 done candidates={}", rid, candidateTags.size());
 
-        // 2) 점수화 로직은 기존 구조 유지
-        List<ScoredSong> scored = candidateTags.stream()
-                .map(st -> new ScoredSong(st.getSong(), computeScore(st, tags)))
-                .toList();
+        // 2) 점수화
+        List<ScoredSong> scored = new ArrayList<>(candidateTags.size());
+        for (SongTag st : candidateTags) {
+            try {
+                double s = computeScore(st, tags);
+                Song song = st.getSong(); // 혹시 여기서 NPE 나면 바로 로그+스택으로 잡힘
+                scored.add(new ScoredSong(song, s));
+            } catch (Exception e) {
+                log.error("[Recommend:{}] scoring_failed songTagId={} err={} msg={}",
+                        rid,
+                        (st == null ? null : safeId(st.getId())),
+                        e.getClass().getSimpleName(),
+                        e.getMessage(),
+                        e);
+                throw e;
+            }
+        }
 
         scored.sort(Comparator.comparingDouble(ScoredSong::score).reversed());
 
-        // 기존 안정화 로직 유지(지금은 FINAL_RESULT_LIMIT=10이라 효과는 제한적)
+        // 안정화 로직
         if (scored.size() > STABLE_TOP_K) {
             List<ScoredSong> head = new ArrayList<>(scored.subList(0, STABLE_TOP_K));
             List<ScoredSong> tail = new ArrayList<>(scored.subList(STABLE_TOP_K, scored.size()));
-            Collections.shuffle(tail, random);
+            Collections.shuffle(tail, ThreadLocalRandom.current());
 
             scored = new ArrayList<>(head.size() + tail.size());
             scored.addAll(head);
             scored.addAll(tail);
         }
 
-        return scored.stream()
-                .limit(FINAL_RESULT_LIMIT)
-                .map(sc -> SongResponseDto.of(sc.song()))
-                .toList();
+        // 3) DTO 변환
+        List<SongResponseDto> out = new ArrayList<>(Math.min(FINAL_RESULT_LIMIT, scored.size()));
+        for (ScoredSong sc : scored) {
+            try {
+                out.add(SongResponseDto.of(sc.song()));
+            } catch (Exception e) {
+                log.error("[Recommend:{}] dto_mapping_failed songId={} err={} msg={}",
+                        rid,
+                        (sc == null || sc.song() == null ? null : sc.song().getId()),
+                        e.getClass().getSimpleName(),
+                        e.getMessage(),
+                        e);
+                throw e;
+            }
+            if (out.size() >= FINAL_RESULT_LIMIT) break;
+        }
+
+        return out;
     }
 
-    private List<SongTag> buildCandidates20(LlmTagResponseDto tags) {
+    private List<SongTag> buildCandidates20(LlmTagResponseDto tags, String rid) {
         // Strong (genre match)
-        List<SongTag> strongGenre = songTagRepository.findStrongByMoodBranchActivityTempoAndGenre(
-                tags.mood(), tags.branch(), tags.activity(), tags.tempo(), tags.genre(),
-                PageRequest.of(0, STRONG_DB_FETCH_LIMIT)
+        List<SongTag> strongGenre = fetch(rid, "strongGenre",
+                () -> songTagRepository.findStrongByMoodBranchActivityTempoAndGenre(
+                        tags.mood(), tags.branch(), tags.activity(), tags.tempo(), tags.genre(),
+                        PageRequest.of(0, STRONG_DB_FETCH_LIMIT)
+                )
         );
 
         // Strong (unknown)
-        List<SongTag> strongUnknown = songTagRepository.findStrongByMoodBranchActivityTempoAndGenre(
-                tags.mood(), tags.branch(), tags.activity(), tags.tempo(), GENRE_UNKNOWN,
-                PageRequest.of(0, STRONG_DB_FETCH_LIMIT)
+        List<SongTag> strongUnknown = fetch(rid, "strongUnknown",
+                () -> songTagRepository.findStrongByMoodBranchActivityTempoAndGenre(
+                        tags.mood(), tags.branch(), tags.activity(), tags.tempo(), GENRE_UNKNOWN,
+                        PageRequest.of(0, STRONG_DB_FETCH_LIMIT)
+                )
         );
 
         strongGenre = dedupeBySongId(strongGenre);
         strongUnknown = dedupeBySongId(strongUnknown);
 
-        // Case 1: 강한 조건에서 genre match가 20개 이상이면 거기서 랜덤 20
+        log.info("[Recommend:{}] strongGenre={} strongUnknown={}", rid, strongGenre.size(), strongUnknown.size());
+
         if (strongGenre.size() >= TARGET_CANDIDATES) {
-            return pickRandomSubset(strongGenre, TARGET_CANDIDATES);
+            List<SongTag> picked = pickRandomSubset(strongGenre, TARGET_CANDIDATES);
+            log.info("[Recommend:{}] picked from strongGenre only: {}", rid, picked.size());
+            return picked;
         }
 
-        // 강한 조건: genre match 전부 + 부족분을 strong unknown으로 보충
         LinkedHashMap<String, SongTag> picked = new LinkedHashMap<>();
         addAllDedup(picked, strongGenre);
         fillRandom(picked, strongUnknown, TARGET_CANDIDATES - picked.size());
 
-        // Case 2: 강한 조건이 20개 미만이면 약한 조건으로 채움
+        log.info("[Recommend:{}] after strong fill picked={}", rid, picked.size());
+
         if (picked.size() < TARGET_CANDIDATES) {
-            List<SongTag> weakGenre = songTagRepository.findWeakByMoodBranchOneMatchAndGenre(
-                    tags.mood(), tags.branch(), tags.activity(), tags.tempo(), tags.genre(),
-                    PageRequest.of(0, WEAK_DB_FETCH_LIMIT)
+            List<SongTag> weakGenre = fetch(rid, "weakGenre",
+                    () -> songTagRepository.findWeakByMoodBranchOneMatchAndGenre(
+                            tags.mood(), tags.branch(), tags.activity(), tags.tempo(), tags.genre(),
+                            PageRequest.of(0, WEAK_DB_FETCH_LIMIT)
+                    )
             );
 
-            List<SongTag> weakUnknown = songTagRepository.findWeakByMoodBranchOneMatchAndGenre(
-                    tags.mood(), tags.branch(), tags.activity(), tags.tempo(), GENRE_UNKNOWN,
-                    PageRequest.of(0, WEAK_DB_FETCH_LIMIT)
+            List<SongTag> weakUnknown = fetch(rid, "weakUnknown",
+                    () -> songTagRepository.findWeakByMoodBranchOneMatchAndGenre(
+                            tags.mood(), tags.branch(), tags.activity(), tags.tempo(), GENRE_UNKNOWN,
+                            PageRequest.of(0, WEAK_DB_FETCH_LIMIT)
+                    )
             );
 
             weakGenre = dedupeBySongId(weakGenre);
             weakUnknown = dedupeBySongId(weakUnknown);
 
+            log.info("[Recommend:{}] weakGenre={} weakUnknown={}", rid, weakGenre.size(), weakUnknown.size());
+
             fillRandom(picked, weakGenre, TARGET_CANDIDATES - picked.size());
             fillRandom(picked, weakUnknown, TARGET_CANDIDATES - picked.size());
         }
 
-        // Case 3: 강+약으로도 20 미만이면 예외
         if (picked.size() < TARGET_CANDIDATES) {
+            log.warn("[Recommend:{}] no candidates. picked={} tags={}", rid, picked.size(), summarize(tags));
             throw new BusinessException(ErrorCode.RECOMMENDATION_NO_CANDIDATES);
         }
 
         return new ArrayList<>(picked.values());
+    }
+
+    private <T> List<T> fetch(String rid, String name, Supplier<List<T>> supplier) {
+        long t0 = System.nanoTime();
+        try {
+            List<T> res = supplier.get();
+            int size = (res == null ? 0 : res.size());
+            log.info("[Recommend:{}] fetch {} size={} elapsedMs={}", rid, name, size, elapsedMs(t0));
+            return (res == null ? List.of() : res);
+        } catch (Exception e) {
+            log.error("[Recommend:{}] fetch_failed {} err={} msg={}",
+                    rid, name, e.getClass().getSimpleName(), e.getMessage(), e);
+            throw e;
+        }
     }
 
     private void addAllDedup(LinkedHashMap<String, SongTag> dest, List<SongTag> src) {
@@ -187,9 +262,30 @@ public class RecommendationService {
     private List<SongTag> pickRandomSubset(List<SongTag> source, int limit) {
         if (source.size() <= limit) return new ArrayList<>(source);
         List<SongTag> copy = new ArrayList<>(source);
-        Collections.shuffle(copy, random);
+        Collections.shuffle(copy, ThreadLocalRandom.current());
         return copy.subList(0, limit);
     }
 
     private record ScoredSong(Song song, double score) {}
+
+    private static String shortRid() {
+        return UUID.randomUUID().toString().substring(0, 8);
+    }
+
+    private static long elapsedMs(long startNano) {
+        return (System.nanoTime() - startNano) / 1_000_000;
+    }
+
+    private static String summarize(LlmTagResponseDto t) {
+        if (t == null) return "null";
+        return "{mood=" + t.mood()
+                + ", genre=" + t.genre()
+                + ", activity=" + t.activity()
+                + ", branch=" + t.branch()
+                + ", tempo=" + t.tempo() + "}";
+    }
+
+    private static String safeId(Object id) {
+        return String.valueOf(id);
+    }
 }
