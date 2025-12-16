@@ -2,12 +2,11 @@ package org.example.apispring.song.web;
 
 import lombok.RequiredArgsConstructor;
 import org.example.apispring.song.application.FillDbService;
+import org.example.apispring.song.application.dto.GeniusAlbumImageFillResultDto;
 import org.example.apispring.song.application.dto.YoutubeAudioFillResultDto;
 import org.example.apispring.song.application.dto.YoutubeVideoThumbFillResultDto;
 import org.springframework.http.ResponseEntity;
-import org.springframework.web.bind.annotation.PostMapping;
-import org.springframework.web.bind.annotation.RequestMapping;
-import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.bind.annotation.*;
 
 @RestController
 @RequestMapping("/api/songs")
@@ -16,10 +15,9 @@ public class SongController {
 
     private final FillDbService fillDbService;
 
-    @PostMapping("/fill/album-images/genius")
-    public ResponseEntity<String> fillAlbumImagesFromGenius() {
-        fillDbService.fillAlbumImagesFromGenius();
-        return ResponseEntity.ok("GENIUS_ALBUM_IMAGES_FILLED");
+    @GetMapping("/fill/genius-album-image")
+    public GeniusAlbumImageFillResultDto fillGenius(@RequestParam(defaultValue = "20") int limit) {
+        return fillDbService.fillAlbumImagesFromGenius(limit);
     }
 
     @PostMapping("/fill/youtube-video-and-thumbnail")
