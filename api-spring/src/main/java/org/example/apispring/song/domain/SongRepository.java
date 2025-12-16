@@ -17,12 +17,17 @@ public interface SongRepository extends JpaRepository<Song, String> {
     List<Song> findSongsWithoutAlbumImage(Pageable pageable);
 
     @Query("""
-            SELECT s
-            FROM Song s
-            WHERE (s.videoId IS NULL OR s.videoId = '')
-               OR (s.thumbnailImageUrl IS NULL OR s.thumbnailImageUrl = '')
-            """)
-    List<Song> findSongsWithMissingVideoIdOrThumbnail(Pageable pageable);
+    SELECT s FROM Song s
+    WHERE (s.videoId IS NULL OR s.videoId = '')
+""")
+    List<Song> findSongsWithMissingVideoId(Pageable pageable);
+
+    @Query("""
+    SELECT s FROM Song s
+    WHERE (s.videoId IS NOT NULL AND s.videoId <> '')
+      AND (s.thumbnailImageUrl IS NULL OR s.thumbnailImageUrl = '')
+""")
+    List<Song> findSongsWithMissingThumbnailOnly(Pageable pageable);
 
     @Query("""
         SELECT s

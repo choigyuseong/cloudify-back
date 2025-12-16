@@ -19,7 +19,7 @@ import java.nio.charset.StandardCharsets;
 @RequiredArgsConstructor
 public class YoutubeClient {
 
-    @Qualifier("externalApiRestTemplate")
+    @Qualifier("youtubeRestTemplate")
     private final RestTemplate restTemplate;
 
     @Value("${YOUTUBE_API_KEY:}")

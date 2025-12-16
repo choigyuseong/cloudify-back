@@ -23,25 +23,40 @@ public class RestTemplateConfig {
     @Bean
     @Qualifier("externalApiRestTemplate")
     public RestTemplate externalApiRestTemplate() {
+        return buildRestTemplate(3, 20, 100, 30);
+    }
+
+    @Bean
+    @Qualifier("youtubeRestTemplate")
+    public RestTemplate youtubeRestTemplate() {
+        return buildRestTemplate(3, 8, 100, 30);
+    }
+
+    private RestTemplate buildRestTemplate(int connectTimeoutSec,
+                                           int socketTimeoutSec,
+                                           int maxConnTotal,
+                                           int maxConnPerRoute) {
 
         SocketConfig socketConfig = SocketConfig.custom()
-                .setSoTimeout(Timeout.ofSeconds(20))
+                .setSoTimeout(Timeout.ofSeconds(socketTimeoutSec))
                 .build();
 
         ConnectionConfig connectionConfig = ConnectionConfig.custom()
-                .setConnectTimeout(Timeout.ofSeconds(3))
+                .setConnectTimeout(Timeout.ofSeconds(connectTimeoutSec))
                 .build();
 
         PoolingHttpClientConnectionManager cm =
                 PoolingHttpClientConnectionManagerBuilder.create()
                         .setDefaultSocketConfig(socketConfig)
                         .setDefaultConnectionConfig(connectionConfig)
-                        .setMaxConnTotal(100)
-                        .setMaxConnPerRoute(30)
+                        .setMaxConnTotal(maxConnTotal)
+                        .setMaxConnPerRoute(maxConnPerRoute)
                         .build();
 
         CloseableHttpClient httpClient = HttpClients.custom()
                 .setConnectionManager(cm)
+                .evictExpiredConnections()
+                .evictIdleConnections(Timeout.ofSeconds(30))
                 .build();
 
         HttpComponentsClientHttpRequestFactory factory =

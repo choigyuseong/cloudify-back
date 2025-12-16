@@ -2,6 +2,8 @@ package org.example.apispring.song.web;
 
 import lombok.RequiredArgsConstructor;
 import org.example.apispring.song.application.FillDbService;
+import org.example.apispring.song.application.dto.YoutubeAudioFillResultDto;
+import org.example.apispring.song.application.dto.YoutubeVideoThumbFillResultDto;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -21,14 +23,14 @@ public class SongController {
     }
 
     @PostMapping("/fill/youtube-video-and-thumbnail")
-    public ResponseEntity<String> fillYoutubeVideoIdAndThumbnail() {
-        fillDbService.fillYoutubeVideoIdAndThumbnail();
-        return ResponseEntity.ok("YOUTUBE_VIDEO_ID_AND_THUMBNAIL_FILLED");
+    public ResponseEntity<YoutubeVideoThumbFillResultDto> fillYoutubeVideoIdAndThumbnail() {
+        YoutubeVideoThumbFillResultDto result = fillDbService.fillYoutubeVideoIdAndThumbnail();
+        return ResponseEntity.ok(result);
     }
 
     @PostMapping("/fill/youtube-audio")
-    public ResponseEntity<String> fillYoutubeAudioId() {
-        fillDbService.fillYoutubeAudioId();
-        return ResponseEntity.ok("YOUTUBE_AUDIO_ID_FILLED");
+    public ResponseEntity<YoutubeAudioFillResultDto> fillYoutubeAudioId() {
+        YoutubeAudioFillResultDto result = fillDbService.fillYoutubeAudioId();
+        return ResponseEntity.ok(result);
     }
 }
