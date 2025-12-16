@@ -22,7 +22,7 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(BusinessException.class)
     public ResponseEntity<ErrorResponse> handleBusiness(BusinessException e) {
         var ec = e.errorCode();
-        return ResponseEntity.status(ec.getHttpStatus()).body(ErrorResponse.of(ec));
+        return ResponseEntity.status(ec.getHttpStatus()).body(ErrorResponse.of(ec, e.getMessage()));
     }
 
     @ExceptionHandler({ MethodArgumentNotValidException.class, BindException.class,

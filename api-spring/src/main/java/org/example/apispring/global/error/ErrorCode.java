@@ -41,6 +41,8 @@ public enum ErrorCode {
     GENIUS_UPSTREAM_ERROR(1601, "Failed to call Genius API", HttpStatus.BAD_GATEWAY),
     GENIUS_QUOTA_EXCEEDED(1602, "Genius API quota exceeded", HttpStatus.TOO_MANY_REQUESTS),
     GENIUS_RESPONSE_INVALID(1603, "Invalid response from Genius API", HttpStatus.BAD_GATEWAY),
+    GENIUS_AUTH_FAILED(1604, "Genius API token is invalid or unauthorized", HttpStatus.INTERNAL_SERVER_ERROR),
+    GENIUS_BAD_REQUEST(1605, "Bad request to Genius API", HttpStatus.BAD_GATEWAY),
 
     // 2xxx 리소스
     RESOURCE_NOT_FOUND(2404, "Resource not found", HttpStatus.NOT_FOUND),
