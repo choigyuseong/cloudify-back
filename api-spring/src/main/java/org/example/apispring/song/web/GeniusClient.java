@@ -1,6 +1,5 @@
 package org.example.apispring.song.web;
 
-import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.example.apispring.global.error.BusinessException;
 import org.example.apispring.global.error.ErrorCode;
@@ -16,16 +15,18 @@ import java.nio.charset.StandardCharsets;
 
 @Slf4j
 @Component
-@RequiredArgsConstructor
 public class GeniusClient {
 
-    @Qualifier("externalApiRestTemplate")
     private final RestTemplate restTemplate;
 
     @Value("${GENIUS_API_KEY:}")
     private String geniusToken;
 
     private static final String SEARCH_ENDPOINT = "https://api.genius.com/search";
+
+    public GeniusClient(@Qualifier("externalApiRestTemplate") RestTemplate restTemplate) {
+        this.restTemplate = restTemplate;
+    }
 
     public ResponseEntity<String> search(String query) {
         if (geniusToken == null || geniusToken.isBlank()) {

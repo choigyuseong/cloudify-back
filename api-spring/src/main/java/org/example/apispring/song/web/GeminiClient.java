@@ -1,6 +1,5 @@
 package org.example.apispring.song.web;
 
-import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.example.apispring.global.error.BusinessException;
 import org.example.apispring.global.error.ErrorCode;
@@ -16,11 +15,9 @@ import java.util.Map;
 
 @Slf4j
 @Component
-@RequiredArgsConstructor
 public class GeminiClient {
 
-    @Qualifier("externalApiRestTemplate")
-    private final RestTemplate rt;
+    private final RestTemplate restTemplate;
 
     @Value("${GEMINI_API_KEY:}")
     private String apiKey;
@@ -36,6 +33,10 @@ public class GeminiClient {
 
     @Value("${GEMINI_MAX_TOKENS:128}")
     private int maxTokens;
+
+    public GeminiClient(@Qualifier("externalApiRestTemplate") RestTemplate restTemplate) {
+        this.restTemplate = restTemplate;
+    }
 
     public ResponseEntity<String> generateContent(String prompt) {
         if (apiKey == null || apiKey.isBlank()) {
@@ -70,7 +71,7 @@ public class GeminiClient {
         headers.set("x-goog-api-key", apiKey);
 
         try {
-            return rt.exchange(url, HttpMethod.POST, new HttpEntity<>(requestBody, headers), String.class);
+            return restTemplate.exchange(url, HttpMethod.POST, new HttpEntity<>(requestBody, headers), String.class);
         } catch (RestClientException e) {
             throw new BusinessException(
                     ErrorCode.GEMINI_UPSTREAM_ERROR,
