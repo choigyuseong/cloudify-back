@@ -30,7 +30,6 @@ public class GeniusClient {
 
     public ResponseEntity<String> search(String query) {
         if (geniusToken == null || geniusToken.isBlank()) {
-            log.warn("[GeniusClient] token missing");
             throw new BusinessException(ErrorCode.GENIUS_API_TOKEN_MISSING);
         }
 
@@ -45,13 +44,46 @@ public class GeniusClient {
 
         HttpEntity<Void> requestEntity = new HttpEntity<>(headers);
 
+        final ResponseEntity<String> res;
         try {
-            return restTemplate.exchange(url, HttpMethod.GET, requestEntity, String.class);
+            res = restTemplate.exchange(url, HttpMethod.GET, requestEntity, String.class);
         } catch (RestClientException e) {
             throw new BusinessException(
                     ErrorCode.GENIUS_UPSTREAM_ERROR,
                     e.getClass().getSimpleName() + ": " + e.getMessage()
             );
         }
+
+        if (res == null) {
+            throw new BusinessException(ErrorCode.GENIUS_UPSTREAM_ERROR, "null_response_entity");
+        }
+
+        int sc = res.getStatusCode().value();
+
+        if (sc == 400) {
+            throw new BusinessException(ErrorCode.GENIUS_BAD_REQUEST, "query='" + query + "'");
+        }
+        if (sc == 401 || sc == 403) {
+            throw new BusinessException(ErrorCode.GENIUS_AUTH_FAILED, "status=" + sc);
+        }
+        if (sc == 429) {
+            throw new BusinessException(ErrorCode.GENIUS_QUOTA_EXCEEDED);
+        }
+        if (sc < 200 || sc >= 300) {
+            throw new BusinessException(
+                    ErrorCode.GENIUS_UPSTREAM_ERROR,
+                    "status=" + sc + " bodyPrefix=" + safePrefix(res.getBody(), 200)
+            );
+        }
+        if (res.getBody() == null) {
+            throw new BusinessException(ErrorCode.GENIUS_RESPONSE_INVALID, "null_body");
+        }
+
+        return res;
+    }
+
+    private static String safePrefix(String s, int n) {
+        if (s == null) return "null";
+        return s.length() <= n ? s : s.substring(0, n);
     }
 }
