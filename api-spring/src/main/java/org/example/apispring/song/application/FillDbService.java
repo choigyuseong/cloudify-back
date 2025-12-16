@@ -13,6 +13,7 @@ import org.example.apispring.song.web.GeniusClient;
 import org.json.JSONArray;
 import org.json.JSONObject;
 import org.springframework.data.domain.PageRequest;
+import org.springframework.http.HttpStatusCode;
 import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -27,243 +28,181 @@ import java.util.concurrent.*;
 public class FillDbService {
 
     private static final int GENIUS_BATCH_SIZE = 200;
-    private static final int YOUTUBE_BATCH_SIZE = 10;
-    private static final int YOUTUBE_CONCURRENCY = 4;
-    private static final int YOUTUBE_CALL_TIMEOUT_SEC = 9;
 
     private final SongRepository songRepository;
     private final GeniusClient geniusClient;
-    private final YoutubeVideoIdSearchService youtubeVideoIdSearchService;
-    private final YoutubeAudioIdSearchService youtubeAudioIdSearchService;
-
-    private final ExecutorService youtubeExecutor = Executors.newFixedThreadPool(YOUTUBE_CONCURRENCY);
-
-    @PreDestroy
-    public void shutdown() {
-        youtubeExecutor.shutdown();
-    }
 
     @Transactional
     public void fillAlbumImagesFromGenius() {
+        final String rid = shortRid();
+        log.info("[GeniusFill:{}] start batchSize={}", rid, GENIUS_BATCH_SIZE);
+
+        int totalUpdated = 0;
+        int totalTrash = 0;
+        int totalSuccess = 0;
+        int totalTransientSkip = 0;
+
+        int round = 0;
+
         while (true) {
-            List<Song> batch = songRepository.findSongsWithoutAlbumImage(
-                    PageRequest.of(0, GENIUS_BATCH_SIZE)
-            );
+            round++;
+
+            List<Song> batch = songRepository.findSongsWithoutAlbumImage(PageRequest.of(0, GENIUS_BATCH_SIZE));
             if (batch.isEmpty()) {
+                log.info("[GeniusFill:{}] done. no more candidates. rounds={} updated={} success={} trash={} transientSkip={}",
+                        rid, round, totalUpdated, totalSuccess, totalTrash, totalTransientSkip);
                 break;
             }
 
+            int updatedThisRound = 0;
+            int trashThisRound = 0;
+            int successThisRound = 0;
+            int transientSkipThisRound = 0;
+
+            List<Song> toSave = new ArrayList<>(batch.size());
+
+            log.info("[GeniusFill:{}] round={} fetched={}", rid, round, batch.size());
+
             for (Song song : batch) {
+                final String songId = song.getId();
+
+                String artist = nullToEmpty(song.getArtist()).trim();
+                String title = nullToEmpty(song.getTitle()).trim();
+                String query = (artist + " " + title).trim();
+
+                // (A) 진짜로 검색 불가능(데이터 결함) → trash 확정
+                if (query.isBlank()) {
+                    log.warn("[GeniusFill:{}] songId={} trash(reason=blank_query) artist='{}' title='{}'",
+                            rid, songId, artist, title);
+                    song.updateAlbumImageUrl("trash");
+                    toSave.add(song);
+                    updatedThisRound++; trashThisRound++;
+                    continue;
+                }
+
+                ResponseEntity<String> res;
                 try {
-                    String query = (song.getArtist() + " " + song.getTitle()).trim();
-                    if (query.isEmpty()) {
-                        song.updateAlbumImageUrl("trash");
-                        songRepository.save(song);
-                        continue;
-                    }
-
-                    ResponseEntity<String> res = geniusClient.search(query);
-                    if (!res.getStatusCode().is2xxSuccessful() || res.getBody() == null) {
-                        continue;
-                    }
-
-                    JSONObject root = new JSONObject(res.getBody());
-                    JSONObject resp = root.optJSONObject("response");
-                    if (resp == null) {
-                        song.updateAlbumImageUrl("trash");
-                        songRepository.save(song);
-                        continue;
-                    }
-
-                    JSONArray hits = resp.optJSONArray("hits");
-                    if (hits == null || hits.isEmpty()) {
-                        song.updateAlbumImageUrl("trash");
-                        songRepository.save(song);
-                        continue;
-                    }
-
-                    String artUrl = selectAlbumImageUrl(hits);
-                    if (artUrl == null || artUrl.isBlank()) {
-                        song.updateAlbumImageUrl("trash");
-                    } else {
-                        song.updateAlbumImageUrl(artUrl);
-                    }
-                    songRepository.save(song);
-
+                    res = geniusClient.search(query);
                 } catch (BusinessException be) {
                     if (be.errorCode() == ErrorCode.GENIUS_API_TOKEN_MISSING) {
+                        log.error("[GeniusFill:{}] token missing -> abort", rid);
                         throw be;
                     }
-                } catch (Exception ignored) {
+                    // 네트워크/클라이언트 예외: transient로 보고 건드리지 않음(재시도)
+                    log.warn("[GeniusFill:{}] songId={} transient_skip(reason=business_exception) code={} msg={} query='{}'",
+                            rid, songId, be.errorCode().name(), be.getMessage(), query);
+                    transientSkipThisRound++;
+                    continue;
+                } catch (Exception e) {
+                    log.warn("[GeniusFill:{}] songId={} transient_skip(reason=exception) err={} msg={} query='{}'",
+                            rid, songId, e.getClass().getSimpleName(), e.getMessage(), query);
+                    transientSkipThisRound++;
+                    continue;
                 }
-            }
-        }
-    }
 
-    public YoutubeVideoThumbFillResultDto fillYoutubeVideoIdAndThumbnail() {
-        int thumbFilled = fillThumbnailOnlyBatch();
-        int videoFilled = fillVideoIdAndThumbnailBatch();
-        return new YoutubeVideoThumbFillResultDto(videoFilled, thumbFilled);
-    }
-
-    public YoutubeAudioFillResultDto fillYoutubeAudioId() {
-        List<Song> batch = songRepository.findSongsWithMissingAudioId(
-                PageRequest.of(0, YOUTUBE_BATCH_SIZE)
-        );
-        if (batch.isEmpty()) {
-            return new YoutubeAudioFillResultDto(0);
-        }
-
-        List<AudioLookup> lookups = batch.stream()
-                .filter(s -> isBlank(s.getAudioId()))
-                .filter(s -> !isBlank(s.getTitle()) && !isBlank(s.getArtist()))
-                .map(s -> new AudioLookup(s.getId(), s.getTitle(), s.getArtist()))
-                .toList();
-
-        Map<String, CompletableFuture<String>> futures = new HashMap<>();
-        for (AudioLookup l : lookups) {
-            CompletableFuture<String> f = CompletableFuture
-                    .supplyAsync(() -> youtubeAudioIdSearchService.findAudioId(l.title, l.artist), youtubeExecutor)
-                    .completeOnTimeout(null, YOUTUBE_CALL_TIMEOUT_SEC, TimeUnit.SECONDS);
-            futures.put(l.songId, f);
-        }
-
-        int audioFilled = 0;
-        List<Song> toSave = new ArrayList<>();
-
-        for (Song song : batch) {
-            if (!isBlank(song.getAudioId())) {
-                continue;
-            }
-
-            CompletableFuture<String> f = futures.get(song.getId());
-            if (f == null) {
-                continue;
-            }
-
-            String audioId;
-            try {
-                audioId = f.join();
-            } catch (CompletionException ce) {
-                Throwable cause = ce.getCause();
-                if (cause instanceof BusinessException be && be.errorCode() == ErrorCode.YOUTUBE_API_KEY_MISSING) {
-                    throw be;
+                if (res == null || res.getBody() == null) {
+                    log.warn("[GeniusFill:{}] songId={} transient_skip(reason=null_response) status={}",
+                            rid, songId, (res == null ? "null" : res.getStatusCode()));
+                    transientSkipThisRound++;
+                    continue;
                 }
-                continue;
-            }
 
-            if (isBlank(audioId)) {
-                continue;
-            }
-
-            song.updateAudioId(audioId);
-            toSave.add(song);
-            audioFilled++;
-        }
-
-        if (!toSave.isEmpty()) {
-            songRepository.saveAll(toSave);
-        }
-
-        return new YoutubeAudioFillResultDto(audioFilled);
-    }
-
-    private int fillThumbnailOnlyBatch() {
-        List<Song> batch = songRepository.findSongsWithMissingThumbnailOnly(
-                PageRequest.of(0, YOUTUBE_BATCH_SIZE)
-        );
-        if (batch.isEmpty()) {
-            return 0;
-        }
-
-        List<Song> toSave = new ArrayList<>();
-        for (Song song : batch) {
-            String videoId = song.getVideoId();
-            if (isBlank(videoId)) {
-                continue;
-            }
-            if (!isBlank(song.getThumbnailImageUrl())) {
-                continue;
-            }
-
-            song.updateThumbnailImageUrl(buildYoutubeThumbnailUrl(videoId));
-            toSave.add(song);
-        }
-
-        if (!toSave.isEmpty()) {
-            songRepository.saveAll(toSave);
-        }
-        return toSave.size();
-    }
-
-    private int fillVideoIdAndThumbnailBatch() {
-        List<Song> batch = songRepository.findSongsWithMissingVideoId(
-                PageRequest.of(0, YOUTUBE_BATCH_SIZE)
-        );
-        if (batch.isEmpty()) {
-            return 0;
-        }
-
-        List<VideoLookup> lookups = batch.stream()
-                .filter(s -> isBlank(s.getVideoId()))
-                .filter(s -> !isBlank(s.getTitle()) && !isBlank(s.getArtist()))
-                .map(s -> new VideoLookup(s.getId(), s.getTitle(), s.getArtist()))
-                .toList();
-
-        Map<String, CompletableFuture<String>> futures = new HashMap<>();
-        for (VideoLookup l : lookups) {
-            CompletableFuture<String> f = CompletableFuture
-                    .supplyAsync(() -> youtubeVideoIdSearchService.findVideoId(l.title, l.artist), youtubeExecutor)
-                    .completeOnTimeout(null, YOUTUBE_CALL_TIMEOUT_SEC, TimeUnit.SECONDS);
-            futures.put(l.songId, f);
-        }
-
-        int videoFilled = 0;
-        List<Song> toSave = new ArrayList<>();
-
-        for (Song song : batch) {
-            if (!isBlank(song.getVideoId())) {
-                continue;
-            }
-
-            CompletableFuture<String> f = futures.get(song.getId());
-            if (f == null) {
-                continue;
-            }
-
-            String videoId;
-            try {
-                videoId = f.join();
-            } catch (CompletionException ce) {
-                Throwable cause = ce.getCause();
-                if (cause instanceof BusinessException be && be.errorCode() == ErrorCode.YOUTUBE_API_KEY_MISSING) {
-                    throw be;
+                int sc = res.getStatusCode().value();
+                if (sc < 200 || sc >= 300) {
+                    // 업스트림 상태 이상: trash 확정 X (재시도)
+                    log.warn("[GeniusFill:{}] songId={} transient_skip(reason=non_2xx) status={} bodyPrefix={}",
+                            rid, songId, sc, safePrefix(res.getBody(), 200));
+                    transientSkipThisRound++;
+                    continue;
                 }
-                continue;
+
+                JSONObject root;
+                try {
+                    root = new JSONObject(res.getBody());
+                } catch (Exception e) {
+                    log.warn("[GeniusFill:{}] songId={} transient_skip(reason=json_parse_fail) err={} bodyPrefix={}",
+                            rid, songId, e.getClass().getSimpleName(), safePrefix(res.getBody(), 200));
+                    transientSkipThisRound++;
+                    continue;
+                }
+
+                JSONObject resp = root.optJSONObject("response");
+                if (resp == null) {
+                    log.warn("[GeniusFill:{}] songId={} transient_skip(reason=missing_response_node) bodyPrefix={}",
+                            rid, songId, safePrefix(res.getBody(), 200));
+                    transientSkipThisRound++;
+                    continue;
+                }
+
+                JSONArray hits = resp.optJSONArray("hits");
+                int hitCount = (hits == null ? 0 : hits.length());
+                log.debug("[GeniusFill:{}] songId={} hits={}", rid, songId, hitCount);
+
+                // (B) “진짜 결과 없음” → trash 확정
+                if (hitCount == 0) {
+                    log.info("[GeniusFill:{}] songId={} trash(reason=no_hits) query='{}'", rid, songId, query);
+                    song.updateAlbumImageUrl("trash");
+                    toSave.add(song);
+                    updatedThisRound++; trashThisRound++;
+                    continue;
+                }
+
+                // (C) 후보 선택 + 상세 로그
+                GeniusPick pick = selectAlbumImage(hits, title, artist, rid, songId);
+
+                if (pick.url() == null || pick.url().isBlank()) {
+                    // “후보는 있지만 쓸 이미지가 없음” → 결과 없음으로 보고 trash 확정
+                    log.info("[GeniusFill:{}] songId={} trash(reason={}) bestScore={} query='{}'",
+                            rid, songId, pick.reason(), pick.bestScore(), query);
+                    song.updateAlbumImageUrl("trash");
+                    toSave.add(song);
+                    updatedThisRound++; trashThisRound++;
+                    continue;
+                }
+
+                log.info("[GeniusFill:{}] songId={} success url={} bestScore={} reason={}",
+                        rid, songId, pick.url(), pick.bestScore(), pick.reason());
+
+                song.updateAlbumImageUrl(pick.url());
+                toSave.add(song);
+                updatedThisRound++; successThisRound++;
             }
 
-            if (isBlank(videoId)) {
-                continue;
+            if (!toSave.isEmpty()) {
+                songRepository.saveAll(toSave);
             }
 
-            song.updateVideoId(videoId);
-            song.updateThumbnailImageUrl(buildYoutubeThumbnailUrl(videoId));
-            toSave.add(song);
-            videoFilled++;
-        }
+            totalUpdated += updatedThisRound;
+            totalTrash += trashThisRound;
+            totalSuccess += successThisRound;
+            totalTransientSkip += transientSkipThisRound;
 
-        if (!toSave.isEmpty()) {
-            songRepository.saveAll(toSave);
+            log.info("[GeniusFill:{}] round={} saved={} (success={} trash={}) transientSkip={}",
+                    rid, round, updatedThisRound, successThisRound, trashThisRound, transientSkipThisRound);
+
+            // 무한루프 방지: 이번 라운드에 DB 변경이 0이면 종료(전부 transient 실패였다는 뜻)
+            if (updatedThisRound == 0) {
+                log.warn("[GeniusFill:{}] stop(no_progress). round={} transientSkip={} fetched={}",
+                        rid, round, transientSkipThisRound, batch.size());
+                break;
+            }
         }
-        return videoFilled;
     }
 
-    private record VideoLookup(String songId, String title, String artist) {}
-    private record AudioLookup(String songId, String title, String artist) {}
+    // ---------------------------------------
+    // 후보 선택 + 로그
+    // ---------------------------------------
+    private GeniusPick selectAlbumImage(JSONArray hits, String title, String artist, String rid, String songId) {
+        String wantTitle = norm(title);
+        String wantArtist = norm(artist);
 
-    private String selectAlbumImageUrl(JSONArray hits) {
         JSONObject best = null;
         double bestScore = -1.0;
+        String bestArt = null;
+
+        int considered = 0;
+        int skippedDefault = 0;
+        int skippedArtistMismatch = 0;
 
         for (int i = 0; i < hits.length(); i++) {
             JSONObject hit = hits.optJSONObject(i);
@@ -272,7 +211,10 @@ public class FillDbService {
             if (result == null) continue;
 
             String art = pickArtUrl(result);
-            if (art == null) continue;
+            if (art == null || isDefaultGeniusImage(art)) {
+                skippedDefault++;
+                continue;
+            }
 
             String primaryArtist = norm(primaryArtistName(result));
             String rTitle = norm(result.optString("title", ""));
@@ -280,69 +222,123 @@ public class FillDbService {
 
             double s = 0.0;
 
-            if (!primaryArtist.isEmpty()) {
-                s += 0.6;
+            // 아티스트 정합성 (너무 다르면 스킵)
+            if (!wantArtist.isEmpty() && !primaryArtist.isEmpty()) {
+                if (primaryArtist.equals(wantArtist)) s += 0.60;
+                else if (primaryArtist.contains(wantArtist) || wantArtist.contains(primaryArtist)) s += 0.45;
+                else {
+                    skippedArtistMismatch++;
+                    continue;
+                }
             }
 
-            if (!rTitle.isEmpty()) {
-                s += 0.3;
-            } else if (!fullTitle.isEmpty()) {
-                s += 0.2;
+            if (!wantTitle.isEmpty()) {
+                if (rTitle.equals(wantTitle)) s += 0.30;
+                else if (rTitle.contains(wantTitle) || fullTitle.contains(wantTitle)) s += 0.20;
             }
 
             String noisy = rTitle + " " + fullTitle;
-            if (noisy.matches(".*\\b(live|cover|remix|nightcore|sped up|lyrics)\\b.*")) {
-                s -= 0.25;
-            }
+            if (noisy.matches(".*\\b(live|cover|remix|nightcore|sped up|lyrics)\\b.*")) s -= 0.25;
 
-            String uploader = norm(result.optJSONObject("primary_artist").optString("name", ""));
-            if (uploader.contains("genius")) {
-                s += 0.15;
+            considered++;
+
+            if (log.isDebugEnabled()) {
+                log.debug("[GeniusPick:{}] songId={} cand#{} score={} art={} pa='{}' title='{}'",
+                        rid, songId, i, s, art, primaryArtist, rTitle);
             }
 
             if (s > bestScore) {
                 bestScore = s;
                 best = result;
+                bestArt = art;
             }
         }
 
-        if (best != null) {
-            String art = pickArtUrl(best);
-            if (art != null && !art.isBlank()) {
-                return art;
-            }
+        if (bestArt != null && !bestArt.isBlank()) {
+            log.debug("[GeniusPick:{}] songId={} selected score={} considered={} skipDefault={} skipArtistMismatch={}",
+                    rid, songId, bestScore, considered, skippedDefault, skippedArtistMismatch);
+            return new GeniusPick(bestArt, bestScore, "SELECTED_BEST");
         }
 
+        // fallback: 점수 threshold(0.2) 이상만
         for (int i = 0; i < hits.length(); i++) {
             JSONObject hit = hits.optJSONObject(i);
             if (hit == null) continue;
             JSONObject result = hit.optJSONObject("result");
+            if (result == null) continue;
+
             String art = pickArtUrl(result);
-            if (art != null && !art.isBlank()) {
-                return art;
+            if (art == null || isDefaultGeniusImage(art)) continue;
+
+            String primaryArtist = norm(primaryArtistName(result));
+            String rTitle = norm(result.optString("title", ""));
+            String fullTitle = norm(result.optString("full_title", ""));
+
+            double s = 0.0;
+            if (!wantArtist.isEmpty() && !primaryArtist.isEmpty()) {
+                if (primaryArtist.equals(wantArtist)) s += 0.60;
+                else if (primaryArtist.contains(wantArtist) || wantArtist.contains(primaryArtist)) s += 0.45;
+            }
+            if (!wantTitle.isEmpty()) {
+                if (rTitle.equals(wantTitle)) s += 0.30;
+                else if (rTitle.contains(wantTitle) || fullTitle.contains(wantTitle)) s += 0.20;
+            }
+
+            if (s >= 0.2) {
+                log.debug("[GeniusPick:{}] songId={} fallback_selected score={} art={}", rid, songId, s, art);
+                return new GeniusPick(art, s, "SELECTED_FALLBACK");
             }
         }
 
-        return null;
+        // 후보는 있는데 usable 이미지가 없음
+        log.debug("[GeniusPick:{}] songId={} no_usable_art hits={} considered={} skipDefault={} skipArtistMismatch={}",
+                rid, songId, hits.length(), considered, skippedDefault, skippedArtistMismatch);
+        return new GeniusPick(null, bestScore, "NO_USABLE_ART");
+    }
+
+    private record GeniusPick(String url, double bestScore, String reason) {}
+
+    // ---------------------------------------
+    // 유틸
+    // ---------------------------------------
+    private static String shortRid() {
+        return UUID.randomUUID().toString().substring(0, 8);
+    }
+
+    private static String safePrefix(String s, int n) {
+        if (s == null) return "null";
+        return s.length() <= n ? s : s.substring(0, n);
+    }
+
+    private static String nullToEmpty(String s) {
+        return (s == null) ? "" : s;
     }
 
     private String pickArtUrl(JSONObject result) {
         if (result == null) return null;
-        String[] keys = new String[]{"song_art_image_url", "song_art_image_thumbnail_url", "header_image_url"};
+        String[] keys = {"song_art_image_url", "song_art_image_thumbnail_url", "header_image_url"};
         for (String k : keys) {
-            String v = result.optString(k, null);
+            Object raw = result.opt(k);
+            if (raw == null || raw == JSONObject.NULL) continue;
+            String v = String.valueOf(raw);
+            if (v.isBlank() || "null".equalsIgnoreCase(v)) continue;
             if (isHttp(v)) return v;
         }
         return null;
     }
 
     private String primaryArtistName(JSONObject result) {
-        try {
-            JSONObject pa = result.optJSONObject("primary_artist");
-            if (pa != null) return pa.optString("name", "");
-        } catch (Exception ignored) {
-        }
-        return "";
+        JSONObject pa = (result == null) ? null : result.optJSONObject("primary_artist");
+        if (pa == null) return "";
+        Object raw = pa.opt("name");
+        if (raw == null || raw == JSONObject.NULL) return "";
+        String name = String.valueOf(raw);
+        return "null".equalsIgnoreCase(name) ? "" : name;
+    }
+
+    private boolean isDefaultGeniusImage(String url) {
+        if (url == null) return true;
+        return url.contains("/images/default") || url.contains("/default_thumb");
     }
 
     private boolean isHttp(String s) {
@@ -358,16 +354,5 @@ public class FillDbService {
         x = x.replaceAll("[^0-9a-zA-Z가-힣ㄱ-ㅎㅏ-ㅣぁ-ゔァ-ヴー一-龯々〆〤\\s']", " ");
         x = x.replaceAll("\\s+", " ").trim();
         return x;
-    }
-
-    private boolean isBlank(String s) {
-        return s == null || s.isBlank();
-    }
-
-    private String buildYoutubeThumbnailUrl(String videoId) {
-        if (videoId == null || videoId.isBlank()) {
-            return null;
-        }
-        return "https://img.youtube.com/vi/" + videoId + "/hqdefault.jpg";
     }
 }
