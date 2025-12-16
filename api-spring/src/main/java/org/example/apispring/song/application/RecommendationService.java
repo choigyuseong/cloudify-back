@@ -1,3 +1,5 @@
+package org.example.apispring.song.application;
+
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.example.apispring.global.error.BusinessException;
