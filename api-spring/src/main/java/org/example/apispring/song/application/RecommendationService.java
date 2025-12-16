@@ -78,64 +78,60 @@ public class RecommendationService {
 
     private List<SongResponseDto> doRecommend(LlmTagResponseDto tags, String rid) {
         if (tags == null) {
-            log.warn("[Recommend:{}] tags is null", rid);
             throw new BusinessException(ErrorCode.VALIDATION_ERROR, "LlmTagResponseDto must not be null");
         }
 
-        // 1) 후보 20개 구성
-        log.info("[Recommend:{}] buildCandidates20 begin", rid);
         List<SongTag> candidateTags = buildCandidates20(tags, rid);
-        log.info("[Recommend:{}] buildCandidates20 done candidates={}", rid, candidateTags.size());
 
-        // 2) 점수화
-        List<ScoredSong> scored = new ArrayList<>(candidateTags.size());
-        for (SongTag st : candidateTags) {
-            try {
-                double s = computeScore(st, tags);
-                Song song = st.getSong(); // 혹시 여기서 NPE 나면 바로 로그+스택으로 잡힘
-                scored.add(new ScoredSong(song, s));
-            } catch (Exception e) {
-                log.error("[Recommend:{}] scoring_failed songTagId={} err={} msg={}",
-                        rid,
-                        (st == null ? null : safeId(st.getId())),
-                        e.getClass().getSimpleName(),
-                        e.getMessage(),
-                        e);
-                throw e;
-            }
-        }
+        List<ScoredSong> scored = candidateTags.stream()
+                .map(st -> new ScoredSong(st.getSong(), computeScore(st, tags)))
+                .toList();
 
-        scored.sort(Comparator.comparingDouble(ScoredSong::score).reversed());
+        List<ScoredSong> sorted = new ArrayList<>(scored);
+        sorted.sort(Comparator.comparingDouble(ScoredSong::score).reversed());
 
-        // 안정화 로직
-        if (scored.size() > STABLE_TOP_K) {
-            List<ScoredSong> head = new ArrayList<>(scored.subList(0, STABLE_TOP_K));
-            List<ScoredSong> tail = new ArrayList<>(scored.subList(STABLE_TOP_K, scored.size()));
+        if (sorted.size() > STABLE_TOP_K) {
+            List<ScoredSong> head = new ArrayList<>(sorted.subList(0, STABLE_TOP_K));
+            List<ScoredSong> tail = new ArrayList<>(sorted.subList(STABLE_TOP_K, sorted.size()));
             Collections.shuffle(tail, ThreadLocalRandom.current());
 
-            scored = new ArrayList<>(head.size() + tail.size());
-            scored.addAll(head);
-            scored.addAll(tail);
+            sorted = new ArrayList<>(head.size() + tail.size());
+            sorted.addAll(head);
+            sorted.addAll(tail);
         }
 
-        // 3) DTO 변환
-        List<SongResponseDto> out = new ArrayList<>(Math.min(FINAL_RESULT_LIMIT, scored.size()));
-        for (ScoredSong sc : scored) {
-            try {
-                out.add(SongResponseDto.of(sc.song()));
-            } catch (Exception e) {
-                log.error("[Recommend:{}] dto_mapping_failed songId={} err={} msg={}",
-                        rid,
-                        (sc == null || sc.song() == null ? null : sc.song().getId()),
-                        e.getClass().getSimpleName(),
-                        e.getMessage(),
-                        e);
-                throw e;
-            }
+        // ✅ 여기서 “유니크 키 기준”으로 중복 제거하며 결과 구성
+        List<SongResponseDto> out = new ArrayList<>(FINAL_RESULT_LIMIT);
+        Set<String> seen = new HashSet<>();
+
+        for (ScoredSong sc : sorted) {
+            Song song = sc.song();
+            if (song == null) continue;
+
+            String key = uniqueKey(song);        // << 핵심
+            if (!seen.add(key)) continue;        // 이미 뽑았으면 skip
+
+            out.add(SongResponseDto.of(song));
             if (out.size() >= FINAL_RESULT_LIMIT) break;
         }
 
         return out;
+    }
+
+    private String uniqueKey(Song s) {
+        // 우선순위: videoId > audioId > (artist|title) > id
+        if (s.getVideoId() != null && !s.getVideoId().isBlank()) return "v:" + s.getVideoId().trim();
+        if (s.getAudioId() != null && !s.getAudioId().isBlank()) return "a:" + s.getAudioId().trim();
+
+        String artist = (s.getArtist() == null) ? "" : normLite(s.getArtist());
+        String title  = (s.getTitle()  == null) ? "" : normLite(s.getTitle());
+        if (!artist.isBlank() || !title.isBlank()) return "t:" + artist + "|" + title;
+
+        return "id:" + s.getId();
+    }
+
+    private String normLite(String s) {
+        return s.toLowerCase(Locale.ROOT).replaceAll("\\s+", " ").trim();
     }
 
     private List<SongTag> buildCandidates20(LlmTagResponseDto tags, String rid) {
